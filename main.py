@@ -44,12 +44,23 @@ last_interrupt_time = 0
 
 # ISR Handler for the button press (falling edge: when button connects to GND)
 def button_isr(pin):
-    global button_triggered, last_interrupt_time
+    global button_triggered, last_interrupt_time, is_idle, red_start_time
     current_time = time.ticks_ms()
     # 200ms debounce filter
     if time.ticks_diff(current_time, last_interrupt_time) > 200:
         button_triggered = True
         last_interrupt_time = current_time
+        
+        # Instant hardware feedback: control LEDs immediately in ISR to bypass network latency
+        if is_idle:
+            red_led.value(1)
+            blue_led.value(0)
+            red_start_time = current_time
+            is_idle = False
+        elif blue_led.value() == 1:
+            blue_led.value(0)
+            red_led.value(1)
+            red_start_time = current_time
 
 # Attach hardware interrupt to the button pin
 button.irq(trigger=machine.Pin.IRQ_FALLING, handler=button_isr)
@@ -147,10 +158,6 @@ while True:
 
         if pressed:
             print("Button pressed: Turning on Red LED for {} seconds.".format(red_duration_s))
-            red_led.value(1)
-            blue_led.value(0)
-            red_start_time = time.ticks_ms()
-            is_idle = False
             
     else:
         elapsed_time = time.ticks_diff(time.ticks_ms(), red_start_time)
@@ -171,8 +178,5 @@ while True:
                 
             if pressed:
                 print("Button pressed in Blue: Restarting cycle to Red LED.")
-                blue_led.value(0)
-                red_led.value(1)
-                red_start_time = time.ticks_ms()
                 
     time.sleep(0.01)
