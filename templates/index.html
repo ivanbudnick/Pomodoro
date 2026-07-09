@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pomodoro IoT Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #080b11;
+            --card-bg: rgba(17, 24, 39, 0.6);
+            --border-color: rgba(255, 255, 255, 0.07);
+            
+            --color-idle: #8a8f98;
+            --color-red: #ff3b30;
+            --color-blue: #007aff;
+            
+            --glow-idle: 0 0 20px rgba(138, 143, 152, 0.15);
+            --glow-red: 0 0 30px rgba(255, 59, 48, 0.4);
+            --glow-blue: 0 0 30px rgba(0, 122, 255, 0.4);
+            
+            --font-family: 'Outfit', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 10% 20%, rgba(255, 59, 48, 0.08) 0px, transparent 50%),
+                radial-gradient(at 90% 80%, rgba(0, 122, 255, 0.08) 0px, transparent 50%);
+            color: #f5f6f8;
+            font-family: var(--font-family);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow-x: hidden;
+            padding: 20px;
+        }
+
+        .dashboard-container {
+            width: 100%;
+            max-width: 460px;
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 28px;
+            padding: 40px 30px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+            text-align: center;
+            position: relative;
+            transition: box-shadow 0.5s ease, border-color 0.5s ease;
+        }
+
+        /* Dynamic glow based on status */
+        .dashboard-container.status-idle {
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), var(--glow-idle);
+            border-color: rgba(138, 143, 152, 0.2);
+        }
+        
+        .dashboard-container.status-red {
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), var(--glow-red);
+            border-color: rgba(255, 59, 48, 0.25);
+        }
+
+        .dashboard-container.status-blue {
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), var(--glow-blue);
+            border-color: rgba(0, 122, 255, 0.25);
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #ffffff 30%, #a5b4fc 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            font-size: 0.9rem;
+            color: #8a8f98;
+            margin-bottom: 35px;
+            font-weight: 300;
+        }
+
+        /* Timer visualization */
+        .timer-wrapper {
+            position: relative;
+            width: 240px;
+            height: 240px;
+            margin: 0 auto 35px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .timer-svg {
+            transform: rotate(-90deg);
+            width: 100%;
+            height: 100%;
+        }
+
+        .timer-bg-circle {
+            fill: none;
+            stroke: rgba(255, 255, 255, 0.03);
+            stroke-width: 10;
+        }
+
+        .timer-progress-circle {
+            fill: none;
+            stroke-width: 10;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 0.2s linear, stroke 0.5s ease;
+        }
+
+        .status-idle .timer-progress-circle {
+            stroke: var(--color-idle);
+        }
+
+        .status-red .timer-progress-circle {
+            stroke: var(--color-red);
+            filter: drop-shadow(0 0 8px rgba(255, 59, 48, 0.6));
+        }
+
+        .status-blue .timer-progress-circle {
+            stroke: var(--color-blue);
+            filter: drop-shadow(0 0 8px rgba(0, 122, 255, 0.6));
+        }
+
+        .timer-text-container {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .timer-digits {
+            font-size: 3.2rem;
+            font-weight: 800;
+            line-height: 1;
+            letter-spacing: -1px;
+            margin-bottom: 6px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .timer-status {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-weight: 600;
+            padding: 4px 12px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            transition: background 0.5s ease, color 0.5s ease;
+        }
+
+        .status-idle .timer-status {
+            color: var(--color-idle);
+            background: rgba(138, 143, 152, 0.1);
+        }
+
+        .status-red .timer-status {
+            color: var(--color-red);
+            background: rgba(255, 59, 48, 0.1);
+            animation: pulse-badge-red 2s infinite;
+        }
+
+        .status-blue .timer-status {
+            color: var(--color-blue);
+            background: rgba(0, 122, 255, 0.1);
+            animation: pulse-badge-blue 2s infinite;
+        }
+
+        /* Settings card */
+        .settings-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 20px;
+            padding: 24px;
+            margin-top: 10px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            text-align: left;
+            margin-bottom: 18px;
+        }
+
+        label {
+            font-size: 0.85rem;
+            color: #8a8f98;
+            margin-bottom: 8px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .input-wrapper {
+            position: relative;
+            display: flex;
+        }
+
+        input[type="number"] {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 14px 16px;
+            color: #ffffff;
+            font-family: var(--font-family);
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        input[type="number"]:focus {
+            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05);
+        }
+
+        /* Chrome, Safari, Edge, Opera: remove spinner arrows */
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        /* Firefox: remove spinner arrows */
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+
+        .unit {
+            position: absolute;
+            right: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #8a8f98;
+            font-size: 0.9rem;
+            pointer-events: none;
+        }
+
+        button {
+            width: 100%;
+            background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+            border: none;
+            border-radius: 12px;
+            padding: 14px;
+            font-family: var(--font-family);
+            font-weight: 600;
+            font-size: 1rem;
+            color: #0f172a;
+            cursor: pointer;
+            transition: transform 0.2s ease, opacity 0.2s ease;
+            box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            opacity: 0.95;
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        /* Alert notifications */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            padding: 12px 24px;
+            border-radius: 12px;
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+            font-size: 0.9rem;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+            transform: translateY(100px);
+            opacity: 0;
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.4s ease;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        /* Keyframes */
+        @keyframes pulse-badge-red {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.2); }
+            50% { box-shadow: 0 0 0 6px rgba(255, 59, 48, 0.0); }
+        }
+
+        @keyframes pulse-badge-blue {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(0, 122, 255, 0.2); }
+            50% { box-shadow: 0 0 0 6px rgba(0, 122, 255, 0.0); }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="dashboard" class="dashboard-container status-idle">
+        <h1>Pomodoro Timer</h1>
+        <p class="subtitle">IoT LED State Dashboard</p>
+
+        <div class="timer-wrapper">
+            <svg class="timer-svg" viewBox="0 0 200 200">
+                <circle class="timer-bg-circle" cx="100" cy="100" r="88" />
+                <circle id="progress" class="timer-progress-circle" cx="100" cy="100" r="88" />
+            </svg>
+            <div class="timer-text-container">
+                <div id="time-display" class="timer-digits">0s</div>
+                <div id="status-label" class="timer-status">Idle</div>
+            </div>
+        </div>
+
+        <div class="settings-card">
+            <div class="input-group">
+                <label for="duration-input">Red LED Duration</label>
+                <div class="input-wrapper">
+                    <input type="number" id="duration-input" min="1" max="3600" value="10" placeholder="10">
+                    <span class="unit">sec</span>
+                </div>
+            </div>
+            <button id="save-btn" onclick="saveDuration()">Update Duration</button>
+        </div>
+    </div>
+
+    <div id="toast" class="toast">Duration updated successfully!</div>
+
+    <script>
+        const CIRCLE_RADIUS = 88;
+        const CIRCLE_CIRCUMFERENCE = 2 * Math.PI * CIRCLE_RADIUS;
+        
+        const progressCircle = document.getElementById('progress');
+        const dashboard = document.getElementById('dashboard');
+        const timeDisplay = document.getElementById('time-display');
+        const statusLabel = document.getElementById('status-label');
+        const durationInput = document.getElementById('duration-input');
+        const toast = document.getElementById('toast');
+
+        // Set initial SVG stroke configurations
+        progressCircle.style.strokeDasharray = CIRCLE_CIRCUMFERENCE;
+        progressCircle.style.strokeDashoffset = CIRCLE_CIRCUMFERENCE;
+
+        let activeConfiguredDuration = 10; // Holds the fetched configuration duration
+
+        // Fetch duration configuration on load
+        async function fetchConfig() {
+            try {
+                const response = await fetch('/api/config');
+                const data = await response.json();
+                if (data.red_duration) {
+                    activeConfiguredDuration = data.red_duration;
+                    durationInput.value = data.red_duration;
+                }
+            } catch (err) {
+                console.error("Error fetching config:", err);
+            }
+        }
+
+        // Save new duration configuration
+        async function saveDuration() {
+            const val = parseInt(durationInput.value);
+            if (isNaN(val) || val <= 0) {
+                alert("Please enter a valid duration greater than 0");
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ red_duration: val })
+                });
+                const data = await response.json();
+                if (data.status === "success") {
+                    activeConfiguredDuration = val;
+                    showToast();
+                } else {
+                    alert("Error updating duration: " + data.message);
+                }
+            } catch (err) {
+                console.error("Error updating config:", err);
+                alert("Could not communicate with the server.");
+            }
+        }
+
+        function showToast() {
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        // Poll state regularly to update the dashboard
+        async function pollState() {
+            try {
+                const response = await fetch('/api/state');
+                const state = await response.json();
+                
+                updateUI(state);
+            } catch (err) {
+                console.error("Error polling state:", err);
+                // Fallback UI state on error
+                statusLabel.innerText = "Offline";
+                dashboard.className = "dashboard-container status-idle";
+                timeDisplay.innerText = "—";
+            }
+        }
+
+        function updateUI(state) {
+            const isIdle = state.is_idle;
+            const remainingTime = state.remaining_time;
+            const activeLed = state.active_led;
+
+            // Class transitions for dynamic styling
+            if (isIdle) {
+                dashboard.className = "dashboard-container status-idle";
+                statusLabel.innerText = "Idle";
+                timeDisplay.innerText = "0s";
+                setProgress(0);
+            } else if (activeLed === "RED") {
+                dashboard.className = "dashboard-container status-red";
+                statusLabel.innerText = "Red Phase";
+                timeDisplay.innerText = `${remainingTime}s`;
+                
+                // Calculate percentage progress for Red LED countdown
+                const progressPct = Math.max(0, Math.min(100, (remainingTime / activeConfiguredDuration) * 100));
+                setProgress(progressPct);
+            } else if (activeLed === "BLUE") {
+                dashboard.className = "dashboard-container status-blue";
+                statusLabel.innerText = "Blue Phase";
+                timeDisplay.innerText = "∞";
+                setProgress(100); // Keep progress ring full for infinite Blue phase
+            }
+        }
+
+        function setProgress(percent) {
+            // Percent runs from 100 (full time remaining) to 0 (no time remaining)
+            const offset = CIRCLE_CIRCUMFERENCE - (percent / 100) * CIRCLE_CIRCUMFERENCE;
+            progressCircle.style.strokeDashoffset = offset;
+        }
+
+        // Initialize dashboard
+        fetchConfig();
+        setInterval(pollState, 200); // 5Hz polling for real-time responsiveness
+    </script>
+</body>
+</html>
