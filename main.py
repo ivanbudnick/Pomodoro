@@ -7,7 +7,7 @@ import urequests
 WIFI_SSID = "Wokwi-GUEST"  # Default SSID for Wokwi simulation
 WIFI_PASSWORD = ""         # Wokwi-GUEST has no password
 # Replace this URL with your localtunnel or ngrok public URL
-SERVER_URL = "https://plenty-onions-hunt.loca.lt" 
+SERVER_URL = "https://silent-gifts-cross.loca.lt" 
 
 # --- PIN CONFIGURATION ---
 BUTTON_PIN = 12   # Pin for the push button
@@ -29,6 +29,10 @@ red_duration_s = 10  # Default duration in seconds (synced from server)
 last_reported_idle = None
 last_reported_remaining = None
 last_reported_led = None
+
+# Network error rate limiting
+server_offline = False
+last_offline_time = 0
 
 # Ensure everything starts turned off
 red_led.value(0)
@@ -52,10 +56,16 @@ button.irq(trigger=machine.Pin.IRQ_FALLING, handler=button_isr)
 
 # Helper function to update the server with the current state
 def update_server_state(idle_val, remaining_val, led_val):
-    global last_reported_idle, last_reported_remaining, last_reported_led
+    global last_reported_idle, last_reported_remaining, last_reported_led, server_offline, last_offline_time
     if (idle_val != last_reported_idle or 
         remaining_val != last_reported_remaining or 
         led_val != last_reported_led):
+        
+        # If the server is offline, rate limit retries to once every 5 seconds
+        if server_offline:
+            if time.ticks_diff(time.ticks_ms(), last_offline_time) < 5000:
+                return
+                
         try:
             payload = {
                 "is_idle": idle_val,
@@ -67,8 +77,11 @@ def update_server_state(idle_val, remaining_val, led_val):
             last_reported_idle = idle_val
             last_reported_remaining = remaining_val
             last_reported_led = led_val
+            server_offline = False  # Connection successful, reset offline flag
         except Exception as e:
             print("Failed to send state update:", e)
+            server_offline = True
+            last_offline_time = time.ticks_ms()
 
 # Helper function to connect to WiFi
 def connect_wifi():
