@@ -6,8 +6,8 @@ import urequests
 # --- WIFI & SERVER CONFIGURATION ---
 WIFI_SSID = "Wokwi-GUEST"  # Default SSID for Wokwi simulation
 WIFI_PASSWORD = ""         # Wokwi-GUEST has no password
-# Replace this URL with your localtunnel or ngrok public URL (e.g., "https://xxxx.loca.lt")
-SERVER_URL = "http://YOUR_SERVER_ADDRESS_HERE" 
+# Replace this URL with your localtunnel or ngrok public URL
+SERVER_URL = "https://plenty-onions-hunt.loca.lt" 
 
 # --- PIN CONFIGURATION ---
 BUTTON_PIN = 12   # Pin for the push button
@@ -21,7 +21,6 @@ red_led = machine.Pin(RED_LED_PIN, machine.Pin.OUT)
 blue_led = machine.Pin(BLUE_LED_PIN, machine.Pin.OUT)
 
 # --- STATE VARIABLES ---
-# Initially, the system is idle.
 is_idle = True
 red_start_time = 0
 red_duration_s = 10  # Default duration in seconds (synced from server)
@@ -35,10 +34,25 @@ last_reported_led = None
 red_led.value(0)
 blue_led.value(0)
 
+# Button flag set by Interrupt Service Routine (ISR)
+button_triggered = False
+last_interrupt_time = 0
+
+# ISR Handler for the button press (falling edge: when button connects to GND)
+def button_isr(pin):
+    global button_triggered, last_interrupt_time
+    current_time = time.ticks_ms()
+    # 200ms debounce filter
+    if time.ticks_diff(current_time, last_interrupt_time) > 200:
+        button_triggered = True
+        last_interrupt_time = current_time
+
+# Attach hardware interrupt to the button pin
+button.irq(trigger=machine.Pin.IRQ_FALLING, handler=button_isr)
+
 # Helper function to update the server with the current state
 def update_server_state(idle_val, remaining_val, led_val):
     global last_reported_idle, last_reported_remaining, last_reported_led
-    # Only make HTTP request if the state has actually changed
     if (idle_val != last_reported_idle or 
         remaining_val != last_reported_remaining or 
         led_val != last_reported_led):
@@ -49,12 +63,11 @@ def update_server_state(idle_val, remaining_val, led_val):
                 "active_led": led_val
             }
             res = urequests.post(SERVER_URL + "/api/state", json=payload)
-            res.close()  # Always close connections in MicroPython to free sockets
+            res.close()
             last_reported_idle = idle_val
             last_reported_remaining = remaining_val
             last_reported_led = led_val
         except Exception as e:
-            # Print warning but keep running (robust in case server is down)
             print("Failed to send state update:", e)
 
 # Helper function to connect to WiFi
@@ -89,17 +102,19 @@ try:
 except Exception as e:
     print("Could not fetch initial config, using default ({}s):".format(red_duration_s), e)
 
-# Initialize server state representation
 update_server_state(True, 0, "NONE")
+last_config_check = time.ticks_ms()
 
-last_config_check = 0
 print("System started. Waiting for button press...")
 
 # --- MAIN LOOP ---
 while True:
-    # Read button (with PULL_UP, 0 means pressed)
-    button_pressed = (button.value() == 0)
-    
+    # Capture and clear the button trigger flag locally
+    pressed = False
+    if button_triggered:
+        pressed = True
+        button_triggered = False  # Reset flag
+
     if is_idle:
         update_server_state(True, 0, "NONE")
         
@@ -117,16 +132,14 @@ while True:
             except Exception as e:
                 print("Failed to sync config:", e)
 
-        if button_pressed:
+        if pressed:
             print("Button pressed: Turning on Red LED for {} seconds.".format(red_duration_s))
             red_led.value(1)
             blue_led.value(0)
-            red_start_time = time.ticks_ms()  # Save the current millisecond
+            red_start_time = time.ticks_ms()
             is_idle = False
-            time.sleep(0.2)  # Avoid repeated instantaneous readings
             
     else:
-        # If not idle, determine the state based on the elapsed time
         elapsed_time = time.ticks_diff(time.ticks_ms(), red_start_time)
         red_duration_ms = red_duration_s * 1000
         
@@ -143,12 +156,10 @@ while True:
                 
             update_server_state(False, 0, "BLUE")
                 
-            if button_pressed:
+            if pressed:
                 print("Button pressed in Blue: Restarting cycle to Red LED.")
                 blue_led.value(0)
                 red_led.value(1)
-                red_start_time = time.ticks_ms()  # Restart the timer
-                time.sleep(0.2)  # Avoid repeated instantaneous readings
+                red_start_time = time.ticks_ms()
                 
-    # Small pause to avoid overloading the simulation processor
     time.sleep(0.01)
