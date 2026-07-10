@@ -7,7 +7,7 @@ import urequests
 WIFI_SSID = "Wokwi-GUEST"  # Default SSID for Wokwi simulation
 WIFI_PASSWORD = ""         # Wokwi-GUEST has no password
 # Replace this URL with your localtunnel or ngrok public URL
-SERVER_URL = "https://musket-affront-undivided.ngrok-free.dev" 
+SERVER_URL = "http://tired-emus-hammer.loca.lt" 
 
 # --- PIN CONFIGURATION ---
 BUTTON_PIN = 12   # Pin for the push button
