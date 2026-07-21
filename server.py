@@ -25,7 +25,6 @@ def connect_wifi():
             print("==========================================\n")
             return ip
 
-        # Reiniciar interfaz WiFi para evitar 'Wifi Internal State Error' en Soft Reboots
         try:
             wlan.active(False)
             time.sleep_ms(100)
@@ -69,31 +68,42 @@ def procesar_config_query(query_str):
             try:
                 val = int(v)
                 if val > 0:
-                    if k in ('rojo', 'tiempo_rojo'):
-                        config.tiempo_rojo_s = val
-                        print("[HTTP] Tiempo LED Rojo actualizado a: {}s".format(config.tiempo_rojo_s))
-                    elif k in ('azul', 'tiempo_azul'):
-                        config.tiempo_azul_s = val
-                        print("[HTTP] Tiempo LED Azul actualizado a: {}s".format(config.tiempo_azul_s))
+                    if k in ('focus', 'tiempo_focus', 'rojo', 'tiempo_rojo'):
+                        config.tiempo_focus_s = val
+                    elif k in ('descanso_corto', 'tiempo_descanso_corto', 'azul', 'tiempo_azul'):
+                        config.tiempo_descanso_corto_s = val
+                    elif k in ('descanso_largo', 'tiempo_descanso_largo', 'verde', 'tiempo_verde'):
+                        config.tiempo_descanso_largo_s = val
+                    elif k == 'ciclos_descanso_largo':
+                        config.ciclos_para_descanso_largo = max(2, val)
             except ValueError:
                 pass
 
 def procesar_config_body(body_str):
     try:
         data = json.loads(body_str)
-        if 'tiempo_rojo' in data and int(data['tiempo_rojo']) > 0:
-            config.tiempo_rojo_s = int(data['tiempo_rojo'])
-            print("[HTTP POST] Tiempo LED Rojo actualizado a: {}s".format(config.tiempo_rojo_s))
-        elif 'rojo' in data and int(data['rojo']) > 0:
-            config.tiempo_rojo_s = int(data['rojo'])
+        if 'tiempo_focus' in data and int(data['tiempo_focus']) > 0:
+            config.tiempo_focus_s = int(data['tiempo_focus'])
+        elif 'tiempo_rojo' in data and int(data['tiempo_rojo']) > 0:
+            config.tiempo_focus_s = int(data['tiempo_rojo'])
+
+        if 'tiempo_descanso_corto' in data and int(data['tiempo_descanso_corto']) > 0:
+            config.tiempo_descanso_corto_s = int(data['tiempo_descanso_corto'])
+        elif 'tiempo_azul' in data and int(data['tiempo_azul']) > 0:
+            config.tiempo_descanso_corto_s = int(data['tiempo_azul'])
+
+        if 'tiempo_descanso_largo' in data and int(data['tiempo_descanso_largo']) > 0:
+            config.tiempo_descanso_largo_s = int(data['tiempo_descanso_largo'])
+
+        if 'descanso_largo_activo' in data:
+            config.descanso_largo_activo = bool(data['descanso_largo_activo'])
+
+        if 'ciclos_para_descanso_largo' in data and int(data['ciclos_para_descanso_largo']) >= 2:
+            config.ciclos_para_descanso_largo = int(data['ciclos_para_descanso_largo'])
             
-        if 'tiempo_azul' in data and int(data['tiempo_azul']) > 0:
-            config.tiempo_azul_s = int(data['tiempo_azul'])
-            print("[HTTP POST] Tiempo LED Azul actualizado a: {}s".format(config.tiempo_azul_s))
-        elif 'azul' in data and int(data['azul']) > 0:
-            config.tiempo_azul_s = int(data['azul'])
+        print("[HTTP CONFIG] Configuración de duraciones actualizada exitosamente.")
     except Exception as e:
-        print("[HTTP POST ERROR] Error decodificando JSON:", e)
+        print("[HTTP POST ERROR] Error decodificando JSON de configuración:", e)
 
 def atender_cliente_http(conn):
     try:
@@ -130,16 +140,23 @@ def atender_cliente_http(conn):
                 if '\r\n\r\n' in req_text:
                     body = req_text.split('\r\n\r\n', 1)[1]
                     procesar_config_body(body)
-                body_res = json.dumps({"status": "success", "tiempo_rojo": config.tiempo_rojo_s, "tiempo_azul": config.tiempo_azul_s})
+                body_res = json.dumps({
+                    "status": "success",
+                    "tiempo_focus": config.tiempo_focus_s,
+                    "tiempo_descanso_corto": config.tiempo_descanso_corto_s,
+                    "tiempo_descanso_largo": config.tiempo_descanso_largo_s,
+                    "descanso_largo_activo": config.descanso_largo_activo,
+                    "ciclos_para_descanso_largo": config.ciclos_para_descanso_largo
+                })
             else:
-                body_res = json.dumps({"tiempo_rojo": config.tiempo_rojo_s, "tiempo_azul": config.tiempo_azul_s})
+                body_res = json.dumps({
+                    "tiempo_focus": config.tiempo_focus_s,
+                    "tiempo_descanso_corto": config.tiempo_descanso_corto_s,
+                    "tiempo_descanso_largo": config.tiempo_descanso_largo_s,
+                    "descanso_largo_activo": config.descanso_largo_activo,
+                    "ciclos_para_descanso_largo": config.ciclos_para_descanso_largo
+                })
                 
-            header = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
-            conn.sendall(header + body_res)
-            
-        elif ruta.startswith('/api/config?'):
-            procesar_config_query(ruta.split('?', 1)[1])
-            body_res = json.dumps({"status": "success", "tiempo_rojo": config.tiempo_rojo_s, "tiempo_azul": config.tiempo_azul_s})
             header = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
             conn.sendall(header + body_res)
 
