@@ -61,107 +61,160 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pomodoro ESP32 Pro - Analytics Dashboard</title>
+    <title>Pomodoro esp32 - Panel de estadísticas</title>
     <!-- Chart.js para gráficos interactivos -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #090d16;
-            --card-bg: rgba(22, 30, 46, 0.8);
-            --border: rgba(255, 255, 255, 0.1);
-            --focus: #ef4444;
-            --descanso-corto: #3b82f6;
-            --descanso-largo: #10b981;
-            --text: #f8fafc;
-            --muted: #94a3b8;
-            --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            --bg: #06080f;
+            --muted: #8a8f98;
+            --text: #f3f4f6;
+            --border: rgba(255, 255, 255, 0.06);
+            --card-bg: rgba(255, 255, 255, 0.015);
+            
+            --focus: #e05a5a;
+            --descanso-corto: #5b8ce0;
+            --descanso-largo: #52be90;
+            --streak: #d99b26;
+            
+            --font: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
-            background: var(--bg);
+            background-color: var(--bg);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(224, 90, 90, 0.03) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(82, 190, 144, 0.03) 0px, transparent 50%),
+                radial-gradient(at 50% 50%, rgba(91, 140, 224, 0.02) 0px, transparent 60%);
             color: var(--text);
             font-family: var(--font);
             min-height: 100vh;
-            padding: 32px 16px;
+            padding: 40px 24px;
         }
+
         .container {
-            max-width: 1040px;
+            width: 100%;
+            max-width: 1300px;
             margin: 0 auto;
         }
+
         .header {
             text-align: center;
-            margin-bottom: 36px;
+            margin-bottom: 40px;
         }
-        .logo-tag {
+
+        .brand-tag {
             display: inline-block;
             padding: 4px 12px;
             border-radius: 20px;
-            background: rgba(239, 68, 68, 0.15);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            color: #f87171;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--muted);
             font-size: 0.75rem;
-            font-weight: 700;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            margin-bottom: 8px;
+            font-weight: 500;
+            margin-bottom: 12px;
+            user-select: none;
         }
-        h1 { font-size: 2rem; font-weight: 800; color: #fff; margin-bottom: 4px; }
-        .subtitle { font-size: 0.9rem; color: var(--muted); }
+
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 6px;
+            letter-spacing: -0.5px;
+        }
+
+        .subtitle {
+            font-size: 0.85rem;
+            color: var(--muted);
+            font-weight: 400;
+        }
 
         /* GRID DE MÉTRICAS */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 16px;
-            margin-bottom: 32px;
+            gap: 20px;
+            margin-bottom: 40px;
         }
+
         .stat-card {
             background: var(--card-bg);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--border);
-            border-radius: 20px;
-            padding: 20px;
+            border-radius: 18px;
+            padding: 24px;
             position: relative;
             overflow: hidden;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            transition: transform 0.2s ease, border-color 0.2s ease;
         }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
         .stat-card::before {
             content: '';
             position: absolute;
-            top: 0; left: 0; width: 100%; height: 4px;
+            top: 0; left: 0; width: 100%; height: 3px;
         }
+
         .stat-card.red::before { background: var(--focus); }
         .stat-card.blue::before { background: var(--descanso-corto); }
         .stat-card.green::before { background: var(--descanso-largo); }
-        .stat-card.gold::before { background: #f59e0b; }
+        .stat-card.gold::before { background: var(--streak); }
 
-        .stat-value { font-size: 2.4rem; font-weight: 800; color: #fff; line-height: 1.1; margin-bottom: 4px; }
-        .stat-label { font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 300;
+            color: #ffffff;
+            line-height: 1.1;
+            margin-bottom: 8px;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--muted);
+        }
 
         /* SECCIÓN DE GRÁFICOS */
         .charts-grid {
             display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 20px;
-            margin-bottom: 32px;
+            grid-template-columns: 1fr;
+            gap: 24px;
+            margin-bottom: 40px;
         }
-        @media (max-width: 768px) {
-            .charts-grid { grid-template-columns: 1fr; }
+
+        @media (min-width: 992px) {
+            .charts-grid {
+                grid-template-columns: 2fr 1fr;
+            }
         }
+
         .chart-card {
             background: var(--card-bg);
-            backdrop-filter: blur(16px);
             border: 1px solid var(--border);
-            border-radius: 20px;
+            border-radius: 18px;
             padding: 24px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
         }
+
         .chart-card h3 {
             font-size: 0.95rem;
-            font-weight: 700;
-            color: #fff;
-            margin-bottom: 16px;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 20px;
             display: flex;
             align-items: center;
             gap: 8px;
@@ -170,90 +223,127 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         /* TABLA DE HISTORIAL */
         .table-card {
             background: var(--card-bg);
-            backdrop-filter: blur(16px);
             border: 1px solid var(--border);
-            border-radius: 20px;
+            border-radius: 18px;
             padding: 24px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
             overflow-x: auto;
         }
-        .table-card h3 { font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 16px; }
+
+        .table-card h3 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 20px;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
         }
+
         th, td {
             padding: 14px 16px;
             text-align: left;
             border-bottom: 1px solid var(--border);
         }
-        th { font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-        td { font-size: 0.9rem; color: #cbd5e1; }
-        tr:hover td { background: rgba(255, 255, 255, 0.02); }
+
+        th {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--muted);
+        }
+
+        td {
+            font-size: 0.85rem;
+            color: #cbd5e1;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.005);
+        }
 
         .badge {
             display: inline-block;
             padding: 4px 10px;
-            border-radius: 12px;
+            border-radius: 20px;
             font-size: 0.75rem;
-            font-weight: 700;
-            text-transform: uppercase;
+            font-weight: 500;
         }
-        .badge.focus { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
-        .badge.descanso_corto { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
-        .badge.descanso_largo { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+
+        .badge.focus {
+            background: rgba(224, 90, 90, 0.08);
+            color: #e05a5a;
+            border: 1px solid rgba(224, 90, 90, 0.2);
+        }
+
+        .badge.descanso_corto {
+            background: rgba(91, 140, 224, 0.08);
+            color: #5b8ce0;
+            border: 1px solid rgba(91, 140, 224, 0.2);
+        }
+
+        .badge.descanso_largo {
+            background: rgba(82, 190, 144, 0.08);
+            color: #52be90;
+            border: 1px solid rgba(82, 190, 144, 0.2);
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <span class="logo-tag">Servidor Analytics PC</span>
-            <h1>Panel de Productividad Pomodoro</h1>
-            <p class="subtitle">Monitoreo en tiempo real de sesiones y métricas de rendimiento</p>
+            <span class="brand-tag">Estadísticas pomodoro</span>
+            <h1>Panel de rendimiento</h1>
+            <p class="subtitle">Monitoreo de sesiones y métricas de productividad en tiempo real</p>
         </div>
 
         <!-- TARJETAS DE ESTADÍSTICAS -->
         <div class="stats-grid">
             <div class="stat-card red">
                 <div class="stat-value">{{ total_focus }}</div>
-                <div class="stat-label">Sesiones Focus</div>
+                <div class="stat-label">Sesiones de enfoque</div>
             </div>
             <div class="stat-card blue">
                 <div class="stat-value">{{ total_minutos_focus }}m</div>
-                <div class="stat-label">Tiempo Focus Total</div>
+                <div class="stat-label">Tiempo total de enfoque</div>
             </div>
             <div class="stat-card gold">
-                <div class="stat-value">{{ racha_actual }} 🔥</div>
-                <div class="stat-label">Racha Actual (Días)</div>
+                <div class="stat-value">{{ racha_actual }}</div>
+                <div class="stat-label">Racha actual (días)</div>
             </div>
             <div class="stat-card green">
-                <div class="stat-value">{{ racha_maxima }} 🏆</div>
-                <div class="stat-label">Mejor Racha (Días)</div>
+                <div class="stat-value">{{ racha_maxima }}</div>
+                <div class="stat-label">Mejor racha (días)</div>
             </div>
         </div>
 
         <!-- SECCIÓN DE GRÁFICOS -->
         <div class="charts-grid">
             <div class="chart-card">
-                <h3>📊 Minutos Focus por Día</h3>
+                <h3>Minutos de enfoque por día</h3>
                 <canvas id="chartDias" height="180"></canvas>
             </div>
             <div class="chart-card">
-                <h3>🍩 Distribución de Sesiones</h3>
+                <h3>Distribución de sesiones</h3>
                 <canvas id="chartTipos" height="180"></canvas>
             </div>
         </div>
 
         <!-- TABLA DE HISTORIAL -->
         <div class="table-card">
-            <h3>Historial de Sesiones Registradas</h3>
+            <h3>Historial de sesiones</h3>
             <table>
                 <thead>
                     <tr>
-                        <th>ID</th>
-                        <th>Fecha y Hora</th>
-                        <th>Tipo de Sesión</th>
-                        <th>Nº Ciclo</th>
+                        <th>Id</th>
+                        <th>Fecha y hora</th>
+                        <th>Tipo de sesión</th>
+                        <th>Ciclo</th>
                         <th>Duración</th>
                     </tr>
                 </thead>
@@ -264,11 +354,11 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                         <td>{{ s[1] }}</td>
                         <td>
                             {% if s[3] == 'focus' %}
-                                <span class="badge focus">🔴 Focus</span>
+                                <span class="badge focus">Enfoque</span>
                             {% elif s[3] == 'descanso_largo' %}
-                                <span class="badge descanso_largo">🟢 Descanso Largo</span>
+                                <span class="badge descanso_largo">Descanso largo</span>
                             {% else %}
-                                <span class="badge descanso_corto">🔵 Descanso Corto</span>
+                                <span class="badge descanso_corto">Descanso corto</span>
                             {% endif %}
                         </td>
                         <td>Ciclo #{{ s[4] }}</td>
@@ -277,7 +367,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     {% else %}
                     <tr>
                         <td colspan="5" style="text-align: center; color: var(--muted); padding: 32px;">
-                            No hay sesiones registradas aún. Completa una sesión Focus en tu ESP32.
+                            No hay sesiones registradas aún. Completa una sesión de enfoque en tu dispositivo.
                         </td>
                     </tr>
                     {% endfor %}
@@ -287,6 +377,15 @@ HTML_DASHBOARD = """<!DOCTYPE html>
     </div>
 
     <script>
+        // Configurar fuentes globales y colores para Chart.js
+        Chart.defaults.font.family = "'Inter', sans-serif";
+        Chart.defaults.color = '#8a8f98';
+        Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(10, 14, 23, 0.9)';
+        Chart.defaults.plugins.tooltip.borderColor = 'rgba(255, 255, 255, 0.08)';
+        Chart.defaults.plugins.tooltip.borderWidth = 1;
+        Chart.defaults.plugins.tooltip.titleColor = '#ffffff';
+        Chart.defaults.plugins.tooltip.bodyColor = '#cbd5e1';
+
         // Cargar datos para los gráficos desde el endpoint /api/stats
         async function cargarGraficos() {
             try {
@@ -300,20 +399,20 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     data: {
                         labels: data.dias_labels,
                         datasets: [{
-                            label: 'Minutos Focus',
+                            label: 'Minutos de enfoque',
                             data: data.dias_minutos,
-                            backgroundColor: 'rgba(239, 68, 68, 0.6)',
-                            borderColor: '#ef4444',
+                            backgroundColor: 'rgba(224, 90, 90, 0.25)',
+                            borderColor: '#e05a5a',
                             borderWidth: 1.5,
-                            borderRadius: 8
+                            borderRadius: 6
                         }]
                     },
                     options: {
                         responsive: true,
                         plugins: { legend: { display: false } },
                         scales: {
-                            x: { grid: { display: false }, ticks: { color: '#94a3b8' } },
-                            y: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#94a3b8' } }
+                            x: { grid: { display: false }, ticks: { color: '#8a8f98' } },
+                            y: { grid: { color: 'rgba(255, 255, 255, 0.04)' }, ticks: { color: '#8a8f98' } }
                         }
                     }
                 });
@@ -323,13 +422,13 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 new Chart(ctxTipos, {
                     type: 'doughnut',
                     data: {
-                        labels: ['Focus', 'Descanso Corto', 'Descanso Largo'],
+                        labels: ['Enfoque', 'Descanso corto', 'Descanso largo'],
                         datasets: [{
                             data: [data.count_focus, data.count_corto, data.count_largo],
                             backgroundColor: [
-                                'rgba(239, 68, 68, 0.8)',
-                                'rgba(59, 130, 246, 0.8)',
-                                'rgba(16, 185, 129, 0.8)'
+                                'rgba(224, 90, 90, 0.85)',
+                                'rgba(91, 140, 224, 0.85)',
+                                'rgba(82, 190, 144, 0.85)'
                             ],
                             borderWidth: 0
                         }]
@@ -339,7 +438,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                         plugins: {
                             legend: {
                                 position: 'bottom',
-                                labels: { color: '#f8fafc', font: { size: 11 } }
+                                labels: { color: '#f3f4f6', boxWidth: 12, padding: 16, font: { size: 12 } }
                             }
                         }
                     }

@@ -193,7 +193,13 @@ def atender_cliente_http(conn):
             if '?' in ruta:
                 procesar_config_query(ruta.split('?', 1)[1])
             header = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n"
-            conn.sendall(header + html_template.HTML_PAGE)
+            conn.sendall(header)
+            
+            # Enviar la página en fragmentos para evitar problemas de buffer y memoria en MicroPython
+            html_data = html_template.HTML_PAGE
+            chunk_size = 512
+            for i in range(0, len(html_data), chunk_size):
+                conn.sendall(html_data[i:i+chunk_size])
             
         # API /api/config (GET y POST)
         elif ruta == '/api/config':

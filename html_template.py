@@ -4,351 +4,358 @@ HTML_PAGE = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pomodoro ESP32 Pro - Configuración</title>
+    <title>Pomodoro esp32 - Configuración de intervalos</title>
     <style>
         :root {
-            --bg: #090d16;
-            --card-bg: rgba(22, 30, 46, 0.8);
-            --border: rgba(255, 255, 255, 0.1);
-            --focus: #ef4444;
-            --descanso-corto: #3b82f6;
-            --descanso-largo: #10b981;
-            --text: #f8fafc;
-            --muted: #94a3b8;
+            --bg: #06080f;
+            --muted: #8a8f98;
+            --text: #f3f4f6;
+            --border: rgba(255, 255, 255, 0.06);
+            --border-focus: rgba(255, 255, 255, 0.15);
+            --color-focus: #e05a5a;
+            --color-short: #5b8ce0;
+            --color-long: #52be90;
             --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            background: var(--bg);
+            background-color: var(--bg);
+            background-image: radial-gradient(circle at top, #141725, #06080f);
             color: var(--text);
             font-family: var(--font);
             min-height: 100vh;
             display: flex;
+            flex-direction: column;
+            justify-content: space-between;
             align-items: center;
-            justify-content: center;
-            padding: 24px 16px;
+            padding: 40px 24px;
         }
-        .container {
-            width: 100%;
-            max-width: 480px;
-            background: var(--card-bg);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid var(--border);
-            border-radius: 24px;
-            padding: 32px 24px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+        @media (min-width: 1024px) {
+            body { height: 100vh; max-height: 100vh; overflow: hidden; padding: 60px 40px; }
         }
-        .header {
-            text-align: center;
-            margin-bottom: 28px;
-        }
-        .logo-tag {
+        .header { text-align: center; margin-bottom: 20px; width: 100%; }
+        .brand-tag {
             display: inline-block;
             padding: 4px 12px;
             border-radius: 20px;
-            background: rgba(59, 130, 246, 0.15);
-            border: 1px solid rgba(59, 130, 246, 0.3);
-            color: #60a5fa;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--muted);
             font-size: 0.75rem;
-            font-weight: 700;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            margin-bottom: 8px;
-        }
-        h1 { font-size: 1.6rem; font-weight: 800; color: #fff; margin-bottom: 4px; }
-        .subtitle { font-size: 0.85rem; color: var(--muted); }
-        
-        .section-title {
-            font-size: 0.8rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            font-weight: 500;
             margin-bottom: 12px;
+        }
+        h1 { font-size: 1.75rem; font-weight: 700; color: #fff; margin-bottom: 6px; letter-spacing: -0.5px; }
+        .subtitle { font-size: 0.85rem; color: var(--muted); }
+        .config-grid {
+            width: 100%;
+            max-width: 1100px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 32px;
+            margin: auto 0;
+        }
+        @media (min-width: 768px) {
+            .config-grid { grid-template-columns: repeat(3, 1fr); gap: 40px; }
+        }
+        .config-column { display: flex; flex-direction: column; align-items: center; }
+        .column-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .status-dot.focus { background-color: var(--color-focus); }
+        .status-dot.short { background-color: var(--color-short); }
+        .status-dot.long { background-color: var(--color-long); }
+        h2 { font-size: 0.95rem; font-weight: 600; color: #fff; }
+        .time-picker { width: 100%; max-width: 280px; }
+        .time-picker-grid { display: grid; grid-template-columns: 1fr auto 1fr; justify-items: center; align-items: center; }
+        .picker-label { font-size: 0.75rem; color: var(--muted); font-weight: 500; margin-bottom: 6px; }
+        .picker-separator-label { width: 16px; }
+        .picker-box-wrapper { grid-column: span 3; width: 100%; }
+        .picker-box {
             display: flex;
             align-items: center;
-            gap: 8px;
-        }
-        .section-title.focus { color: var(--focus); }
-        .section-title.short { color: var(--descanso-corto); }
-        .section-title.long { color: var(--descanso-largo); }
-        
-        .time-inputs {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-        .input-box {
-            background: rgba(15, 23, 42, 0.6);
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.015);
             border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: 10px 14px;
+            border-radius: 18px;
+            padding: 16px 20px;
+            transition: border-color 0.3s, background-color 0.3s;
         }
-        .input-box label {
-            display: block;
-            font-size: 0.7rem;
-            font-weight: 600;
-            color: var(--muted);
-            margin-bottom: 4px;
-            text-transform: uppercase;
-        }
-        .input-box input {
-            width: 100%;
+        .picker-box:focus-within { border-color: var(--border-focus); background: rgba(255, 255, 255, 0.03); }
+        .digit-input {
             background: transparent;
             border: none;
             color: #fff;
-            font-size: 1.1rem;
-            font-weight: 700;
+            font-size: 3.5rem;
+            font-weight: 300;
+            width: 2.2ch;
+            text-align: center;
             outline: none;
+            font-family: inherit;
+            font-variant-numeric: tabular-nums;
+            -moz-appearance: textfield;
         }
-
-        .card-option {
-            background: rgba(15, 23, 42, 0.4);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 16px;
-            margin-bottom: 20px;
-        }
-        .toggle-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 12px;
-        }
-        .toggle-label {
-            font-size: 0.9rem;
-            font-weight: 600;
-            color: #fff;
-        }
-        
-        /* Switch Custom Toggle */
-        .switch {
-            position: relative;
-            display: inline-block;
-            width: 48px;
-            height: 26px;
-        }
+        .digit-input::-webkit-outer-spin-button, .digit-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .picker-colon { font-size: 3rem; color: rgba(255, 255, 255, 0.15); font-weight: 300; margin: 0 2px; line-height: 1; transform: translateY(-4px); }
+        .long-break-header-row { display: flex; align-items: center; justify-content: space-between; width: 100%; max-width: 280px; margin-bottom: 16px; }
+        .long-break-header-row .column-header { margin-bottom: 0; }
+        .switch { position: relative; display: inline-block; width: 42px; height: 22px; }
         .switch input { opacity: 0; width: 0; height: 0; }
         .slider {
             position: absolute;
             cursor: pointer;
             top: 0; left: 0; right: 0; bottom: 0;
-            background-color: #334155;
-            transition: .3s;
-            border-radius: 26px;
+            background-color: rgba(255, 255, 255, 0.06);
+            transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 22px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
         }
         .slider:before {
             position: absolute;
             content: "";
-            height: 20px; width: 20px;
-            left: 3px; bottom: 3px;
-            background-color: white;
-            transition: .3s;
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: #f3f4f6;
+            transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
             border-radius: 50%;
         }
-        input:checked + .slider { background-color: var(--descanso-largo); }
-        input:checked + .slider:before { transform: translateX(22px); }
-
-        button.btn-save {
-            width: 100%;
-            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+        input:checked + .slider { background-color: var(--color-long); }
+        input:checked + .slider:before { transform: translateX(20px); background-color: #06080f; }
+        .cycles-container { width: 100%; max-width: 280px; display: flex; align-items: center; justify-content: space-between; margin-top: 20px; transition: opacity 0.3s; }
+        .cycles-label { font-size: 0.8rem; color: var(--muted); }
+        .cycles-input-box { background: rgba(255, 255, 255, 0.015); border: 1px solid var(--border); border-radius: 10px; padding: 6px 12px; width: 64px; }
+        .cycles-input-box input { width: 100%; background: transparent; border: none; color: #fff; font-family: inherit; font-size: 0.9rem; font-weight: 500; text-align: center; outline: none; }
+        .action-row { width: 100%; display: flex; justify-content: center; margin-top: 20px; z-index: 10; }
+        .btn-save {
+            background: #fff;
+            color: #06080f;
             border: none;
             border-radius: 14px;
-            padding: 16px;
-            font-weight: 700;
-            font-size: 1rem;
-            color: #fff;
+            padding: 14px 40px;
+            font-family: inherit;
+            font-weight: 600;
+            font-size: 0.95rem;
             cursor: pointer;
-            box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
-            transition: transform 0.1s, background 0.2s;
-            margin-bottom: 24px;
+            transition: transform 0.2s, background-color 0.2s;
         }
-        button.btn-save:active { transform: scale(0.98); }
-
-        /* INSTRUCTIVO VISUAL DEL BOTÓN */
-        .manual-card {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px dashed rgba(255, 255, 255, 0.15);
-            border-radius: 18px;
-            padding: 18px;
+        .btn-save:hover { background-color: #f3f4f6; transform: translateY(-2px); }
+        .btn-save:active { transform: translateY(1px); }
+        .gesture-legend {
+            position: fixed;
+            bottom: 24px;
+            left: 24px;
+            z-index: 99;
+            background: rgba(10, 14, 23, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 16px;
+            max-width: 290px;
+            transition: all 0.3s;
+            opacity: 0.6;
         }
-        .manual-title {
-            font-size: 0.85rem;
-            font-weight: 700;
-            color: #fff;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 12px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+        .gesture-legend:hover { opacity: 1; transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.12); }
+        @media (max-width: 768px) {
+            .gesture-legend { position: relative; bottom: 0; left: 0; margin-top: 40px; max-width: 100%; width: 100%; opacity: 0.9; }
         }
-        .manual-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 10px;
-        }
-        .manual-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            background: rgba(15, 23, 42, 0.4);
-            border-radius: 12px;
-            padding: 10px 14px;
-        }
-        .manual-icon {
-            font-size: 1.3rem;
-            background: rgba(255, 255, 255, 0.05);
-            width: 38px;
-            height: 38px;
-            display: flex;
+        .legend-header { font-size: 0.8rem; font-weight: 600; color: #fff; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .legend-info-icon {
+            display: inline-flex;
             align-items: center;
             justify-content: center;
+            width: 14px;
+            height: 14px;
+            border: 1.5px solid var(--muted);
             border-radius: 50%;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: var(--muted);
         }
-        .manual-text {
-            display: flex;
-            flex-direction: column;
-        }
-        .manual-text .cmd { font-size: 0.85rem; font-weight: 700; color: #fff; }
-        .manual-text .desc { font-size: 0.75rem; color: var(--muted); }
-
+        .legend-list { display: flex; flex-direction: column; gap: 10px; }
+        .legend-item { display: flex; flex-direction: column; gap: 2px; border-left: 2px solid rgba(255, 255, 255, 0.08); padding-left: 10px; }
+        .legend-cmd { font-size: 0.75rem; font-weight: 600; color: #fff; }
+        .legend-desc { font-size: 0.7rem; color: var(--muted); line-height: 1.3; }
         .toast {
-            margin-top: 14px;
-            font-size: 0.85rem;
-            color: #34d399;
-            text-align: center;
-            padding: 10px;
-            border-radius: 10px;
-            background: rgba(16, 185, 129, 0.15);
-            border: 1px solid rgba(16, 185, 129, 0.3);
-            display: none;
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 1000;
+            background: rgba(82, 190, 144, 0.08);
+            border: 1px solid rgba(82, 190, 144, 0.2);
+            color: #52be90;
+            font-size: 0.8rem;
+            font-weight: 500;
+            padding: 12px 20px;
+            border-radius: 12px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            opacity: 0;
+            transform: translateY(20px) scale(0.95);
+            transition: all 0.3s;
+            pointer-events: none;
         }
+        .toast.show { opacity: 1; transform: translateY(0) scale(1); }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <span class="logo-tag">ESP32 Pomodoro</span>
-            <h1>Configurar Duraciones</h1>
-            <p class="subtitle">Personaliza tus intervalos de tiempo y descansos</p>
-        </div>
-
-        <!-- FASE FOCUS -->
-        <div class="section-title focus">🔴 Sesión Focus</div>
-        <div class="time-inputs">
-            <div class="input-box">
-                <label>Minutos</label>
-                <input type="number" id="focus-m" min="0" max="180" value="0">
+    <div class="header">
+        <span class="brand-tag">pomodoro esp32</span>
+        <h1>Configuración de intervalos</h1>
+        <p class="subtitle">Personaliza los tiempos de enfoque y descanso de tu dispositivo</p>
+    </div>
+    <div class="config-grid">
+        <div class="config-column">
+            <div class="column-header">
+                <span class="status-dot focus"></span>
+                <h2>Sesión de enfoque</h2>
             </div>
-            <div class="input-box">
-                <label>Segundos</label>
-                <input type="number" id="focus-s" min="0" max="59" value="5">
-            </div>
-        </div>
-
-        <!-- FASE DESCANSO CORTO -->
-        <div class="section-title short">🔵 Descanso Corto</div>
-        <div class="time-inputs">
-            <div class="input-box">
-                <label>Minutos</label>
-                <input type="number" id="short-m" min="0" max="60" value="0">
-            </div>
-            <div class="input-box">
-                <label>Segundos</label>
-                <input type="number" id="short-s" min="0" max="59" value="3">
+            <div class="time-picker">
+                <div class="time-picker-grid">
+                    <span class="picker-label">min</span>
+                    <span class="picker-separator-label"></span>
+                    <span class="picker-label">sec</span>
+                    <div class="picker-box-wrapper">
+                        <div class="picker-box">
+                            <input type="number" id="focus-m" class="digit-input" min="0" max="180" value="25" oninput="validateDigits(this)">
+                            <span class="picker-colon">:</span>
+                            <input type="number" id="focus-s" class="digit-input" min="0" max="59" value="00" oninput="validateDigits(this)">
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
-
-        <!-- OPCIONES DESCANSO LARGO -->
-        <div class="card-option">
-            <div class="toggle-row">
-                <span class="toggle-label">Activar Descanso Largo</span>
+        <div class="config-column">
+            <div class="column-header">
+                <span class="status-dot short"></span>
+                <h2>Descanso corto</h2>
+            </div>
+            <div class="time-picker">
+                <div class="time-picker-grid">
+                    <span class="picker-label">min</span>
+                    <span class="picker-separator-label"></span>
+                    <span class="picker-label">sec</span>
+                    <div class="picker-box-wrapper">
+                        <div class="picker-box">
+                            <input type="number" id="short-m" class="digit-input" min="0" max="60" value="05" oninput="validateDigits(this)">
+                            <span class="picker-colon">:</span>
+                            <input type="number" id="short-s" class="digit-input" min="0" max="59" value="00" oninput="validateDigits(this)">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="config-column">
+            <div class="long-break-header-row">
+                <div class="column-header">
+                    <span class="status-dot long"></span>
+                    <h2>Descanso largo</h2>
+                </div>
                 <label class="switch">
-                    <input type="checkbox" id="long-active" checked>
+                    <input type="checkbox" id="long-active" onchange="toggleLongBreakEffect(true)">
                     <span class="slider"></span>
                 </label>
             </div>
-            
-            <div class="section-title long" style="margin-top: 12px;">🟢 Descanso Largo</div>
-            <div class="time-inputs" style="margin-bottom: 12px;">
-                <div class="input-box">
-                    <label>Minutos</label>
-                    <input type="number" id="long-m" min="0" max="60" value="0">
-                </div>
-                <div class="input-box">
-                    <label>Segundos</label>
-                    <input type="number" id="long-s" min="0" max="59" value="6">
+            <div class="time-picker" id="long-break-inputs">
+                <div class="time-picker-grid">
+                    <span class="picker-label">min</span>
+                    <span class="picker-separator-label"></span>
+                    <span class="picker-label">sec</span>
+                    <div class="picker-box-wrapper">
+                        <div class="picker-box">
+                            <input type="number" id="long-m" class="digit-input" min="0" max="60" value="15" oninput="validateDigits(this)">
+                            <span class="picker-colon">:</span>
+                            <input type="number" id="long-s" class="digit-input" min="0" max="59" value="00" oninput="validateDigits(this)">
+                        </div>
+                    </div>
                 </div>
             </div>
-
-            <div class="input-box">
-                <label>Ciclos Focus Requeridos (Mínimo 2)</label>
-                <input type="number" id="long-cycles" min="2" max="20" value="4">
-            </div>
-        </div>
-
-        <button class="btn-save" onclick="guardarConfig()">Guardar Configuración</button>
-        <div id="toast" class="toast">¡Configuración guardada correctamente!</div>
-
-        <!-- GUÍA RÁPIDA DEL BOTÓN DE GESTOS -->
-        <div class="manual-card">
-            <div class="manual-title">🕹️ Guía de Gestos (Botón 2 - GPIO 22)</div>
-            <div class="manual-grid">
-                <div class="manual-item">
-                    <div class="manual-icon">⏸️</div>
-                    <div class="manual-text">
-                        <span class="cmd">1 Clic</span>
-                        <span class="desc">Pausar / Reanudar (Luz parpadea sin sonido)</span>
-                    </div>
-                </div>
-                <div class="manual-item">
-                    <div class="manual-icon">🔄</div>
-                    <div class="manual-text">
-                        <span class="cmd">2 Clics</span>
-                        <span class="desc">Reiniciar tiempo de la fase actual a 0s (Tono doble)</span>
-                    </div>
-                </div>
-                <div class="manual-item">
-                    <div class="manual-icon">🏠</div>
-                    <div class="manual-text">
-                        <span class="cmd">Mantener 2s</span>
-                        <span class="desc">Volver a Standby / Espera (Tono descendente)</span>
-                    </div>
+            <div class="cycles-container" id="cycles-container">
+                <span class="cycles-label">Ciclos de enfoque requeridos</span>
+                <div class="cycles-input-box">
+                    <input type="number" id="long-cycles" min="2" max="20" value="4">
                 </div>
             </div>
         </div>
     </div>
-
+    <div class="action-row">
+        <button class="btn-save" onclick="guardarConfig()">Guardar configuración</button>
+    </div>
+    <div class="gesture-legend">
+        <div class="legend-header">
+            <span class="legend-info-icon">i</span>
+            <span>Guía de gestos</span>
+        </div>
+        <div class="legend-list">
+            <div class="legend-item">
+                <span class="legend-cmd">1 clic</span>
+                <span class="legend-desc">Pausar o reanudar el cronómetro de la fase actual</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-cmd">2 clics</span>
+                <span class="legend-desc">Reiniciar el tiempo de la fase actual a cero</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-cmd">Mantener 2s</span>
+                <span class="legend-desc">Volver al estado de espera o standby</span>
+            </div>
+        </div>
+    </div>
+    <div id="toast" class="toast">Configuración guardada correctamente</div>
     <script>
+        function padZero(num) { return num.toString().padStart(2, '0'); }
+        function validateDigits(input) {
+            let val = input.value;
+            if (val.length > 3) input.value = val.slice(0, 3);
+            const min = parseInt(input.min) || 0;
+            const max = parseInt(input.max) || 999;
+            let numericVal = parseInt(input.value);
+            if (!isNaN(numericVal)) {
+                if (numericVal < min) input.value = min;
+                if (numericVal > max) input.value = max;
+            }
+        }
+        function toggleLongBreakEffect(animate = false) {
+            const active = document.getElementById('long-active').checked;
+            const inputs = document.getElementById('long-break-inputs');
+            const cycles = document.getElementById('cycles-container');
+            const targetOpacity = active ? '1' : '0.25';
+            const targetPointerEvents = active ? 'auto' : 'none';
+            if (animate) {
+                inputs.style.transition = 'opacity 0.3s';
+                cycles.style.transition = 'opacity 0.3s';
+            }
+            inputs.style.opacity = targetOpacity;
+            inputs.style.pointerEvents = targetPointerEvents;
+            cycles.style.opacity = targetOpacity;
+            cycles.style.pointerEvents = targetPointerEvents;
+        }
         async function cargarConfig() {
             try {
                 const res = await fetch('/api/config');
                 const data = await res.json();
-                
                 if (data.tiempo_focus !== undefined) {
-                    document.getElementById('focus-m').value = Math.floor(data.tiempo_focus / 60);
-                    document.getElementById('focus-s').value = data.tiempo_focus % 60;
+                    document.getElementById('focus-m').value = padZero(Math.floor(data.tiempo_focus / 60));
+                    document.getElementById('focus-s').value = padZero(data.tiempo_focus % 60);
                 }
                 if (data.tiempo_descanso_corto !== undefined) {
-                    document.getElementById('short-m').value = Math.floor(data.tiempo_descanso_corto / 60);
-                    document.getElementById('short-s').value = data.tiempo_descanso_corto % 60;
+                    document.getElementById('short-m').value = padZero(Math.floor(data.tiempo_descanso_corto / 60));
+                    document.getElementById('short-s').value = padZero(data.tiempo_descanso_corto % 60);
                 }
                 if (data.tiempo_descanso_largo !== undefined) {
-                    document.getElementById('long-m').value = Math.floor(data.tiempo_descanso_largo / 60);
-                    document.getElementById('long-s').value = data.tiempo_descanso_largo % 60;
+                    document.getElementById('long-m').value = padZero(Math.floor(data.tiempo_descanso_largo / 60));
+                    document.getElementById('long-s').value = padZero(data.tiempo_descanso_largo % 60);
                 }
                 if (data.descanso_largo_activo !== undefined) {
                     document.getElementById('long-active').checked = data.descanso_largo_activo;
+                    toggleLongBreakEffect(false);
                 }
                 if (data.ciclos_para_descanso_largo !== undefined) {
                     document.getElementById('long-cycles').value = data.ciclos_para_descanso_largo;
                 }
             } catch(e) {}
         }
-
         async function guardarConfig() {
             const focusM = parseInt(document.getElementById('focus-m').value) || 0;
             const focusS = parseInt(document.getElementById('focus-s').value) || 0;
@@ -356,20 +363,17 @@ HTML_PAGE = """<!DOCTYPE html>
             const shortS = parseInt(document.getElementById('short-s').value) || 0;
             const longM  = parseInt(document.getElementById('long-m').value) || 0;
             const longS  = parseInt(document.getElementById('long-s').value) || 0;
-
             const totalFocus = focusM * 60 + focusS;
             const totalShort = shortM * 60 + shortS;
             const totalLong  = longM * 60 + longS;
             const longActive = document.getElementById('long-active').checked;
             const longCycles = Math.max(2, parseInt(document.getElementById('long-cycles').value) || 4);
-
             if (totalFocus <= 0 || totalShort <= 0 || (longActive && totalLong <= 0)) {
-                alert('Las duraciones de los intervalos deben ser mayores a 0 segundos.');
+                alert('Las duraciones de los intervalos deben ser mayores a cero segundos.');
                 return;
             }
-
             try {
-                const res = await fetch('/api/config', {
+                await fetch('/api/config', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -381,13 +385,19 @@ HTML_PAGE = """<!DOCTYPE html>
                     })
                 });
                 const toast = document.getElementById('toast');
-                toast.style.display = 'block';
-                setTimeout(() => toast.style.display = 'none', 3000);
+                toast.classList.add('show');
+                setTimeout(() => toast.classList.remove('show'), 3000);
             } catch(e) {
                 alert('Error al comunicar con la ESP32.');
             }
         }
-
+        const digitInputs = document.querySelectorAll('.digit-input');
+        digitInputs.forEach(input => {
+            input.addEventListener('blur', () => {
+                let val = parseInt(input.value) || 0;
+                input.value = padZero(val);
+            });
+        });
         cargarConfig();
     </script>
 </body>
