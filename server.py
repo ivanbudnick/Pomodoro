@@ -60,8 +60,50 @@ def connect_wifi():
         print("\n[ADVERTENCIA] Error en módulo WiFi ({}). Iniciando en modo offline.".format(e))
         return "Offline"
 
+def sincronizar_config_pc():
+    """Descarga e impone la última configuración guardada en la base de datos de la PC"""
+    try:
+        import urequests
+        url = config.FLASK_SERVER_URL.replace("/datos", "/api/latest_config")
+        print("[SYNC] Descargando última configuración de la PC desde {}...".format(url))
+        res = urequests.get(url)
+        if res.status_code == 200:
+            data = res.json()
+            if data:
+                config.tiempo_focus_s = int(data.get("tiempo_focus", config.tiempo_focus_s))
+                config.tiempo_descanso_corto_s = int(data.get("tiempo_descanso_corto", config.tiempo_descanso_corto_s))
+                config.tiempo_descanso_largo_s = int(data.get("tiempo_descanso_largo", config.tiempo_descanso_largo_s))
+                config.descanso_largo_activo = bool(data.get("descanso_largo_activo", config.descanso_largo_activo))
+                config.ciclos_para_descanso_largo = int(data.get("ciclos_para_descanso_largo", config.ciclos_para_descanso_largo))
+                config.guardar_a_disco()
+                print("[SYNC SUCCESS] Configuración sincronizada con la base de datos de la PC.")
+            else:
+                print("[SYNC INFO] No hay configuraciones en la BD de la PC aún.")
+        res.close()
+    except Exception as e:
+        print("[SYNC WARNING] No se pudo conectar a la PC para sincronizar:", e)
+
+def enviar_config_a_pc():
+    """Respalda la configuración actual de la ESP32 en la base de datos de la PC"""
+    try:
+        import urequests
+        url = config.FLASK_SERVER_URL.replace("/datos", "/api/save_config")
+        payload = {
+            "tiempo_focus": config.tiempo_focus_s,
+            "tiempo_descanso_corto": config.tiempo_descanso_corto_s,
+            "tiempo_descanso_largo": config.tiempo_descanso_largo_s,
+            "descanso_largo_activo": config.descanso_largo_activo,
+            "ciclos_para_descanso_largo": config.ciclos_para_descanso_largo
+        }
+        res = urequests.post(url, json=payload)
+        print("[SYNC REPORT] Configuración respaldada en PC (DB). HTTP Status:", res.status_code)
+        res.close()
+    except Exception as e:
+        print("[SYNC REPORT WARNING] No se pudo respaldar la configuración en la PC:", e)
+
 # --- PROCESAMIENTO DE PARÁMETROS Y CLIENTES HTTP ---
 def procesar_config_query(query_str):
+    updated = False
     for par in query_str.split('&'):
         if '=' in par:
             k, v = par.split('=', 1)
@@ -70,40 +112,59 @@ def procesar_config_query(query_str):
                 if val > 0:
                     if k in ('focus', 'tiempo_focus', 'rojo', 'tiempo_rojo'):
                         config.tiempo_focus_s = val
+                        updated = True
                     elif k in ('descanso_corto', 'tiempo_descanso_corto', 'azul', 'tiempo_azul'):
                         config.tiempo_descanso_corto_s = val
+                        updated = True
                     elif k in ('descanso_largo', 'tiempo_descanso_largo', 'verde', 'tiempo_verde'):
                         config.tiempo_descanso_largo_s = val
+                        updated = True
                     elif k == 'ciclos_descanso_largo':
                         config.ciclos_para_descanso_largo = max(2, val)
+                        updated = True
             except ValueError:
                 pass
+    if updated:
+        config.guardar_a_disco()
+        enviar_config_a_pc()
 
 def procesar_config_body(body_str):
     try:
         data = json.loads(body_str)
+        updated = False
         if 'tiempo_focus' in data and int(data['tiempo_focus']) > 0:
             config.tiempo_focus_s = int(data['tiempo_focus'])
+            updated = True
         elif 'tiempo_rojo' in data and int(data['tiempo_rojo']) > 0:
             config.tiempo_focus_s = int(data['tiempo_rojo'])
+            updated = True
 
         if 'tiempo_descanso_corto' in data and int(data['tiempo_descanso_corto']) > 0:
             config.tiempo_descanso_corto_s = int(data['tiempo_descanso_corto'])
+            updated = True
         elif 'tiempo_azul' in data and int(data['tiempo_azul']) > 0:
             config.tiempo_descanso_corto_s = int(data['tiempo_azul'])
+            updated = True
 
         if 'tiempo_descanso_largo' in data and int(data['tiempo_descanso_largo']) > 0:
             config.tiempo_descanso_largo_s = int(data['tiempo_descanso_largo'])
+            updated = True
 
         if 'descanso_largo_activo' in data:
             config.descanso_largo_activo = bool(data['descanso_largo_activo'])
+            updated = True
 
         if 'ciclos_para_descanso_largo' in data and int(data['ciclos_para_descanso_largo']) >= 2:
             config.ciclos_para_descanso_largo = int(data['ciclos_para_descanso_largo'])
+            updated = True
             
-        print("[HTTP CONFIG] Configuración de duraciones actualizada exitosamente.")
+        if updated:
+            print("[HTTP CONFIG] Configuración de duraciones actualizada exitosamente.")
+            config.guardar_a_disco()
+            enviar_config_a_pc()
     except Exception as e:
         print("[HTTP POST ERROR] Error decodificando JSON de configuración:", e)
+
 
 def atender_cliente_http(conn):
     try:

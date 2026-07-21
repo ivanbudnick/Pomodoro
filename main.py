@@ -4,7 +4,9 @@ import pomodoro
 import server
 
 # 1. Conectar a la red WiFi (si está configurada)
-server.connect_wifi()
+ip = server.connect_wifi()
+if ip != "Offline":
+    server.sincronizar_config_pc()
 
 # 2. Iniciar Servidor HTTP embebido en puerto 80
 server.iniciar_servidor_http()

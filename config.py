@@ -43,3 +43,48 @@ tiempo_descanso_largo_s = 6   # Duración de Descanso Largo en segundos
 
 descanso_largo_activo = True  # Habilitado / Deshabilitado
 ciclos_para_descanso_largo = 4 # Cantidad de sesiones Focus para desencadenar Descanso Largo (mínimo 2)
+
+# --- PERSISTENCIA LOCAL (JSON) EN FLASH DE LA ESP32 ---
+def guardar_a_disco():
+    """Guarda la configuración actual en un archivo config.json local en el ESP32"""
+    try:
+        import ujson as json
+        with open("config.json", "w") as f:
+            json.dump({
+                "tiempo_focus": tiempo_focus_s,
+                "tiempo_descanso_corto": tiempo_descanso_corto_s,
+                "tiempo_descanso_largo": tiempo_descanso_largo_s,
+                "descanso_largo_activo": descanso_largo_activo,
+                "ciclos_para_descanso_largo": ciclos_para_descanso_largo
+            }, f)
+        print("[CONFIG] Configuración guardada en config.json local.")
+    except Exception as e:
+        print("[CONFIG ERROR] No se pudo guardar config.json local:", e)
+
+def cargar_de_disco():
+    """Carga la configuración desde config.json local en el ESP32 si existe"""
+    global tiempo_focus_s, tiempo_descanso_corto_s, tiempo_descanso_largo_s, descanso_largo_activo, ciclos_para_descanso_largo
+    try:
+        import os
+        import ujson as json
+        # Verificar si el archivo existe antes de abrirlo
+        try:
+            os.stat("config.json")
+        except OSError:
+            print("[CONFIG INFO] No existe config.json local. Usando valores por defecto.")
+            return
+            
+        with open("config.json", "r") as f:
+            data = json.load(f)
+            tiempo_focus_s = int(data.get("tiempo_focus", tiempo_focus_s))
+            tiempo_descanso_corto_s = int(data.get("tiempo_descanso_corto", tiempo_descanso_corto_s))
+            tiempo_descanso_largo_s = int(data.get("tiempo_descanso_largo", tiempo_descanso_largo_s))
+            descanso_largo_activo = bool(data.get("descanso_largo_activo", descanso_largo_activo))
+            ciclos_para_descanso_largo = int(data.get("ciclos_para_descanso_largo", ciclos_para_descanso_largo))
+        print("[CONFIG SUCCESS] Configuración cargada desde config.json local.")
+    except Exception as e:
+        print("[CONFIG ERROR] Fallo al leer config.json local:", e)
+
+# Cargar configuración del disco al importar el módulo
+cargar_de_disco()
+

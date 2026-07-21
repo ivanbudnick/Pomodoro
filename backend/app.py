@@ -24,6 +24,19 @@ def init_db():
         )
     ''')
     
+    # Crear tabla de configuraciones
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS configuraciones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            tiempo_focus INTEGER,
+            tiempo_descanso_corto INTEGER,
+            tiempo_descanso_largo INTEGER,
+            descanso_largo_activo INTEGER,
+            ciclos_para_descanso_largo INTEGER
+        )
+    ''')
+    
     # Migrar tabla legacy si existía
     cursor.execute("PRAGMA table_info(ciclos_rojos)")
     legacy_exists = cursor.fetchall()
@@ -475,6 +488,56 @@ def api_stats():
         "dias_labels": dias_labels,
         "dias_minutos": dias_minutos
     })
+
+@app.route('/api/save_config', methods=['POST'])
+def save_config():
+    """Endpoint para guardar la última configuración configurada en la base de datos"""
+    try:
+        data = request.get_json(force=True)
+        tiempo_focus = int(data.get('tiempo_focus', 1500))
+        tiempo_descanso_corto = int(data.get('tiempo_descanso_corto', 300))
+        tiempo_descanso_largo = int(data.get('tiempo_descanso_largo', 900))
+        descanso_largo_activo = 1 if data.get('descanso_largo_activo', True) else 0
+        ciclos_para_descanso_largo = int(data.get('ciclos_para_descanso_largo', 4))
+        
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO configuraciones (tiempo_focus, tiempo_descanso_corto, tiempo_descanso_largo, descanso_largo_activo, ciclos_para_descanso_largo)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (tiempo_focus, tiempo_descanso_corto, tiempo_descanso_largo, descanso_largo_activo, ciclos_para_descanso_largo))
+        conn.commit()
+        conn.close()
+        
+        print("[BD FLASK] Nueva configuración de tiempos guardada en base de datos.")
+        return jsonify({"status": "success", "message": "Configuración registrada en la BD"}), 200
+    except Exception as e:
+        print("[BD FLASK ERROR] Fallo al guardar configuración:", e)
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+@app.route('/api/latest_config', methods=['GET'])
+def latest_config():
+    """Endpoint para proveer la última configuración registrada en la base de datos"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT tiempo_focus, tiempo_descanso_corto, tiempo_descanso_largo, descanso_largo_activo, ciclos_para_descanso_largo FROM configuraciones ORDER BY id DESC LIMIT 1')
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return jsonify({
+                "tiempo_focus": row[0],
+                "tiempo_descanso_corto": row[1],
+                "tiempo_descanso_largo": row[2],
+                "descanso_largo_activo": bool(row[3]),
+                "ciclos_para_descanso_largo": row[4]
+            }), 200
+        else:
+            return jsonify({}), 200
+    except Exception as e:
+        print("[BD FLASK ERROR] Fallo al leer última configuración:", e)
+        return jsonify({"status": "error", "message": str(e)}), 400
 
 if __name__ == '__main__':
     print("\n=======================================================")
