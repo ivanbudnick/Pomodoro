@@ -1,6 +1,7 @@
-# --- CONFIGURACIÓN DE WIFI ---
-WIFI_SSID = "TU_RED_WIFI"        # Cambia por el nombre de tu red WiFi
-WIFI_PASSWORD = "TU_PASSWORD"     # Cambia por tu contraseña de WiFi
+# --- CONFIGURACIÓN DE WIFI Y SERVIDOR FLASK ---
+WIFI_SSID = "El Fi del Wi"            # Red WiFi real
+WIFI_PASSWORD = "teamolionelscaloni"  # Contraseña WiFi real
+FLASK_SERVER_URL = "http://192.168.0.125:5001/datos"  # Puerto 5001 para evitar conflictos con AirPlay en macOS
 
 # --- CONFIGURACIÓN DE PINES (ESP32 REAL) ---
 PIN_BTN = 23

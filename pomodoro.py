@@ -20,6 +20,23 @@ estado_actual = ESTADO_AMARILLO_TITILANDO
 cronometro = time.ticks_ms()
 ultimo_titilo = time.ticks_ms()
 estado_luz_titilo = False
+ciclos_rojos_completados = 0
+
+def enviar_reporte_flask(ciclo_num, duracion_s):
+    """Envía un reporte HTTP POST a la PC usando urequests al completar la fase roja"""
+    try:
+        import urequests
+        payload = {
+            "dispositivo": "ESP32_Pomodoro",
+            "evento": "ciclo_rojo_completado",
+            "ciclo_num": ciclo_num,
+            "duracion_s": duracion_s
+        }
+        res = urequests.post(config.FLASK_SERVER_URL, json=payload)
+        print("[FLASK REPORT] Evento enviado a la PC (192.168.0.125). Estado HTTP:", res.status_code)
+        res.close()
+    except Exception as e:
+        print("[FLASK REPORT WARNING] No se pudo enviar el reporte a la PC:", e)
 
 def obtener_dict_estado():
     """Retorna un diccionario con el estado actual y segundos restantes para la API web"""
@@ -41,12 +58,13 @@ def obtener_dict_estado():
         "estado_nombre": nombre,
         "remaining_s": remaining_s,
         "tiempo_rojo": config.tiempo_rojo_s,
-        "tiempo_azul": config.tiempo_azul_s
+        "tiempo_azul": config.tiempo_azul_s,
+        "ciclos_completados": ciclos_rojos_completados
     }
 
 def ejecutar_pomodoro_step():
     """Ejecuta un tick no bloqueante de la máquina de estados del Pomodoro"""
-    global estado_actual, cronometro, ultimo_titilo, estado_luz_titilo
+    global estado_actual, cronometro, ultimo_titilo, estado_luz_titilo, ciclos_rojos_completados
     
     ahora = time.ticks_ms()
     botón_pulsado = hardware.boton_presionado()
@@ -81,10 +99,18 @@ def ejecutar_pomodoro_step():
         hardware.set_color_pwm(intensidad_rojo, 0, 0)
         
         if transcurrido >= duracion_ms:
+            ciclos_rojos_completados += 1
+            print("[POMODORO] ¡Ciclo Rojo #{} Completado ({}s)!".format(ciclos_rojos_completados, config.tiempo_rojo_s))
+            
+            # Sonido de cambio de estado
             hardware.reproducir_pitidos(config.FREQ_BUZZER_CAMBIO_ESTADO, repeticiones=2, duracion_ms=70, pausa_ms=50)
+            
+            # Enviar reporte a la BD en el servidor Flask de la PC
+            enviar_reporte_flask(ciclos_rojos_completados, config.tiempo_rojo_s)
+            
             cronometro = ahora
             estado_actual = ESTADO_AZUL
-            print("[POMODORO] Fin Rojo ({}s). Estado: Azul progresivo ({}s).".format(config.tiempo_rojo_s, config.tiempo_azul_s))
+            print("[POMODORO] Estado: Azul progresivo ({}s).".format(config.tiempo_azul_s))
 
     # ESTADO 2: Luz azul progresiva por tiempo_azul_s
     elif estado_actual == ESTADO_AZUL:
