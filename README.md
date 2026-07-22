@@ -2,6 +2,21 @@
 
 This project implements a MicroPython-based ESP32 Pomodoro timer integrated with a premium glassmorphic Flask web dashboard.
 
+## Hardware Specifications (ESP-32S)
+
+This firmware is optimized for the **ESP-32S (ESP-WROOM-32 module)**. Below is the pinout mapping for physical components:
+
+*   **Button 1 (Start/Resume - Wakes from Sleep):** `GPIO 25` (RTC-capable, configured with internal pull-up).
+*   **Button 2 (Control/Pause/Gestures):** `GPIO 22` (Configured with internal pull-up).
+*   **LED RGB (PWM Output):**
+    *   **Red:** `GPIO 14`
+    *   **Green:** `GPIO 27`
+    *   **Blue:** `GPIO 26`
+*   **Buzzer (PWM Output):** `GPIO 13`
+
+> [!NOTE]
+> GPIO 25 is chosen for the Start Button to prevent conflicts with the 32.768 kHz external crystal oscillator typically soldered on GPIO 32 and 33 in ESP-32S boards, while still maintaining full RTC Deep Sleep wake capability.
+
 ## Basic Operation
 1. **Idle State**: Both LEDs are off. The web UI displays "Idle".
 2. **Red LED Phase (Timer Active)**: Pressing the button turns on the Red LED and starts the countdown. The web UI displays the countdown in real-time.

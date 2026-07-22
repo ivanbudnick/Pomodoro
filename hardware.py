@@ -41,25 +41,6 @@ def sonar_buzzer(frecuencia, encendido):
     else:
         buzzer.duty(0)
 
-def reproducir_pitidos(frecuencia, repeticiones=2, duracion_ms=70, pausa_ms=50):
-    """Emite impulsos sonoros amigables y audibles"""
-    for i in range(repeticiones):
-        sonar_buzzer(frecuencia, True)
-        time.sleep_ms(duracion_ms)
-        sonar_buzzer(0, False)
-        if i < repeticiones - 1:
-            time.sleep_ms(pausa_ms)
-
-def reproducir_tono_reinicio_fase():
-    """Emite un tono característico de reinicio ascendente rápido (Do5 -> Mi5 -> Sol5)"""
-    sonar_buzzer(523, True)  # Do5
-    time.sleep_ms(50)
-    sonar_buzzer(659, True)  # Mi5
-    time.sleep_ms(50)
-    sonar_buzzer(784, True)  # Sol5
-    time.sleep_ms(70)
-    sonar_buzzer(0, False)
-
 
 def calcular_intensidad_progresiva(tiempo_transcurrido, tiempo_total_ms):
     """

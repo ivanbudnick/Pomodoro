@@ -4,7 +4,7 @@ WIFI_PASSWORD = "teamolionelscaloni"  # Contraseña WiFi real
 FLASK_SERVER_URL = "http://192.168.0.125:5001/datos"  # Puerto 5001 en PC
 
 # --- CONFIGURACIÓN DE PINES (ESP32 REAL) ---
-PIN_BTN = 23                   # Botón 1: Inicio / Reanudación
+PIN_BTN = 25                   # Botón 1: Inicio / Reanudación (Cambiado a GPIO 25 para evitar conflicto de cristal de 32kHz en ESP-32S)
 PIN_BTN_CONTROL = 22           # Botón 2: Pausa / Gestos (Reset Fase / Reset Standby)
 PIN_LED_ROJO = 14
 PIN_LED_VERDE = 27
@@ -23,6 +23,7 @@ INTERVALO_ALERTA_MS = 500
 TIEMPO_TRANSICION_PITIDO_MS = 100
 DEBOUNCE_BOTON_MS = 300
 LOOP_SLEEP_MS = 10
+TIEMPO_INACTIVIDAD_SLEEP_MS = 5000  # 5 segundos de inactividad para entrar en Deep Sleep (Testing rápido)
 
 # --- CONSTANTES DE GESTOS PARA BOTÓN 2 ---
 TIEMPO_MANTENER_STANDBY_MS = 2000  # 2 segundos de presión para volver a Standby

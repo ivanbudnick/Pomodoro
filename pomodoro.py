@@ -1,6 +1,7 @@
 import time
 import config
 import hardware
+import audio
 
 # --- ESTADOS DEL SISTEMA POMODORO PRO ---
 ESTADO_STANDBY         = 0
@@ -23,6 +24,8 @@ cronometro = time.ticks_ms()
 ultimo_titilo = time.ticks_ms()
 estado_luz_titilo = False
 ciclos_focus_consecutivos = 0
+ultimo_evento_ms = time.ticks_ms()  # Marca de tiempo de la última actividad o interacción
+color_alerta_actual = "azul"        # Color de alerta contextual (azul tras descanso corto, verde tras largo)
 
 # Variables de control de pausa
 pausado = False
@@ -80,23 +83,20 @@ def obtener_dict_estado():
 
 def ejecutar_pomodoro_step():
     """Ejecuta un tick no bloqueante de la máquina de estados del Pomodoro Pro con Pausa y Resets"""
-    global estado_actual, cronometro, ultimo_titilo, estado_luz_titilo, ciclos_focus_consecutivos, pausado, tiempo_acumulado_ms
+    global estado_actual, cronometro, ultimo_titilo, estado_luz_titilo, ciclos_focus_consecutivos, pausado, tiempo_acumulado_ms, color_alerta_actual
     
     ahora = time.ticks_ms()
     botón_pulsado = hardware.boton_presionado()
     gesto = hardware.detectar_gesto_boton_control()
     
+    # Registrar actividad ante interacciones físicas o estados activos corriendo
+    if (estado_actual != ESTADO_STANDBY and not pausado) or botón_pulsado or (gesto != hardware.GESTO_NINGUNO):
+        registrar_actividad()
+    
+    # 1. PROCESAR GESTO: RESET IDLE (Mantener presionado 2 segundos) -> vuelve a Standby
     # 1. PROCESAR GESTO: RESET IDLE (Mantener presionado 2 segundos) -> vuelve a Standby
     if gesto == hardware.GESTO_RESET_IDLE:
-        # Pitido distintivo descendente (Sol5 -> Mi5 -> Do5)
-        hardware.sonar_buzzer(config.FREQ_BUZZER_TRANSICION, True)
-        time.sleep_ms(80)
-        hardware.sonar_buzzer(config.FREQ_BUZZER_CAMBIO_ESTADO, True)
-        time.sleep_ms(80)
-        hardware.sonar_buzzer(config.FREQ_BUZZER_INICIO, True)
-        time.sleep_ms(100)
-        hardware.sonar_buzzer(0, False)
-        
+        audio.play_reset_idle()
         estado_actual = ESTADO_STANDBY
         pausado = False
         tiempo_acumulado_ms = 0
@@ -111,7 +111,7 @@ def ejecutar_pomodoro_step():
             cronometro = ahora
             tiempo_acumulado_ms = 0
             pausado = False
-            hardware.reproducir_tono_reinicio_fase()
+            audio.play_reset_phase()
             print("[POMODORO] Fase actual reseteada a 0s. (No cuenta en BD)")
             return
 
@@ -121,13 +121,11 @@ def ejecutar_pomodoro_step():
             if pausado:
                 tiempo_acumulado_ms += time.ticks_diff(ahora, cronometro)
                 print("[POMODORO] Temporizador PAUSADO.")
+                audio.play_pause()
             else:
                 cronometro = ahora
                 print("[POMODORO] Temporizador REANUDADO.")
-            # Toque de sonido de 30ms solo al pulsar
-            hardware.sonar_buzzer(1000, True)
-            time.sleep_ms(30)
-            hardware.sonar_buzzer(0, False)
+                audio.play_resume()
             return
 
     # 3. SI EL TEMPORIZADOR ESTÁ PAUSADO: Parpadear luz en color de fase activa con su intensidad congelada
@@ -179,7 +177,7 @@ def ejecutar_pomodoro_step():
             pausado = False
             estado_actual = ESTADO_FOCUS
             print("[POMODORO] Inicio Sesión FOCUS ({}s).".format(config.tiempo_focus_s))
-            hardware.reproducir_pitidos(config.FREQ_BUZZER_INICIO, repeticiones=1, duracion_ms=70)
+            audio.play_start_cold()
             time.sleep_ms(config.DEBOUNCE_BOTON_MS)
 
     # ESTADO 1: FOCUS (Luz roja progresiva exponencial)
@@ -197,7 +195,7 @@ def ejecutar_pomodoro_step():
             print("[POMODORO] ¡Sesión FOCUS #{} Completada! ({}s)".format(ciclos_focus_consecutivos, config.tiempo_focus_s))
             
             # Sonido de cambio de estado
-            hardware.reproducir_pitidos(config.FREQ_BUZZER_CAMBIO_ESTADO, repeticiones=2, duracion_ms=70, pausa_ms=50)
+            audio.play_done_focus()
             
             # Guardar en Base de Datos de la PC (Focus completado con éxito)
             enviar_reporte_flask("focus", ciclos_focus_consecutivos, config.tiempo_focus_s)
@@ -228,7 +226,7 @@ def ejecutar_pomodoro_step():
         
         if transcurrido >= duracion_ms:
             hardware.set_color_pwm(0, 0, 0)
-            hardware.reproducir_pitidos(config.FREQ_BUZZER_TRANSICION, repeticiones=2, duracion_ms=70, pausa_ms=50)
+            audio.play_done_break()
             
             # Reportar descanso corto completado a la PC
             enviar_reporte_flask("descanso_corto", ciclos_focus_consecutivos, config.tiempo_descanso_corto_s)
@@ -237,8 +235,9 @@ def ejecutar_pomodoro_step():
             tiempo_acumulado_ms = 0
             ultimo_titilo = time.ticks_ms()
             estado_luz_titilo = True
+            color_alerta_actual = "azul"
             estado_actual = ESTADO_ALERTA_TITILANDO
-            print("[POMODORO] Fin Descanso Corto. Estado: Alerta.")
+            print("[POMODORO] Fin Descanso Corto. Estado: Alerta (Azul).")
 
     # ESTADO 3: DESCANSO LARGO (Luz verde progresiva exponencial)
     elif estado_actual == ESTADO_DESCANSO_LARGO:
@@ -250,7 +249,7 @@ def ejecutar_pomodoro_step():
         
         if transcurrido >= duracion_ms:
             hardware.set_color_pwm(0, 0, 0)
-            hardware.reproducir_pitidos(config.FREQ_BUZZER_TRANSICION, repeticiones=2, duracion_ms=70, pausa_ms=50)
+            audio.play_done_break()
             
             # Reportar descanso largo completado a la PC
             enviar_reporte_flask("descanso_largo", ciclos_focus_consecutivos, config.tiempo_descanso_largo_s)
@@ -259,18 +258,21 @@ def ejecutar_pomodoro_step():
             tiempo_acumulado_ms = 0
             ultimo_titilo = time.ticks_ms()
             estado_luz_titilo = True
+            color_alerta_actual = "verde"
             estado_actual = ESTADO_ALERTA_TITILANDO
-            print("[POMODORO] Fin Descanso Largo. Estado: Alerta.")
+            print("[POMODORO] Fin Descanso Largo. Estado: Alerta (Verde).")
 
     # ESTADO 4: ALERTA (Parpadeo azul + pitido sutil)
     elif estado_actual == ESTADO_ALERTA_TITILANDO:
         if time.ticks_diff(ahora, ultimo_titilo) >= config.INTERVALO_ALERTA_MS:
             estado_luz_titilo = not estado_luz_titilo
             if estado_luz_titilo:
-                hardware.set_color_pwm(0, 0, config.DUTY_MAX) # Azul ON
-                hardware.sonar_buzzer(config.FREQ_BUZZER_ALERTA, True)
-                time.sleep_ms(50)
-                hardware.sonar_buzzer(0, False)
+                # Color de alerta contextual basado en el tipo de descanso que finalizó
+                if color_alerta_actual == "verde":
+                    hardware.set_color_pwm(0, config.DUTY_MAX, 0) # Verde ON
+                else:
+                    hardware.set_color_pwm(0, 0, config.DUTY_MAX) # Azul ON
+                audio.play_alert_pip()
             else:
                 hardware.set_color_pwm(0, 0, 0) # Apagado
                 hardware.sonar_buzzer(0, False)
@@ -283,5 +285,37 @@ def ejecutar_pomodoro_step():
             pausado = False
             estado_actual = ESTADO_FOCUS
             print("[POMODORO] Reinicio. Inicio Sesión FOCUS ({}s).".format(config.tiempo_focus_s))
-            hardware.reproducir_pitidos(config.FREQ_BUZZER_INICIO, repeticiones=1, duracion_ms=70)
+            audio.play_start_warm()
             time.sleep_ms(config.DEBOUNCE_BOTON_MS)
+
+
+def registrar_actividad():
+    """Actualiza la marca de tiempo de la última interacción detectada"""
+    global ultimo_evento_ms
+    ultimo_evento_ms = time.ticks_ms()
+
+
+def verificar_y_ejecutar_sleep():
+    """Evalúa si el dispositivo ha estado inactivo en STANDBY y ejecuta Deep Sleep si corresponde"""
+    global estado_actual, ultimo_evento_ms
+    if estado_actual == ESTADO_STANDBY:
+        ahora = time.ticks_ms()
+        transcurrido_ms = time.ticks_diff(ahora, ultimo_evento_ms)
+        if transcurrido_ms >= config.TIEMPO_INACTIVIDAD_SLEEP_MS:
+            print("[SLEEP] Pomodoro inactivo por {}s. Entrando en Deep Sleep...".format(transcurrido_ms // 1000))
+            
+            # Melodía de apagado
+            audio.play_sleep_in()
+            
+            # Apagar el LED RGB completamente
+            hardware.set_color_pwm(0, 0, 0)
+            
+            # Configurar el botón de inicio (GPIO 25) para despertar
+            import machine
+            import esp32
+            
+            wake_pin = machine.Pin(config.PIN_BTN, machine.Pin.IN, machine.Pin.PULL_UP)
+            esp32.wake_on_ext0(pin=wake_pin, level=0)
+            
+            # Dormir indefinidamente
+            machine.deepsleep()

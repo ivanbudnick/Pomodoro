@@ -168,6 +168,7 @@ def procesar_config_body(body_str):
 
 def atender_cliente_http(conn):
     try:
+        pomodoro.registrar_actividad()
         conn.settimeout(0.3)
         raw_data = conn.recv(1024)
         if not raw_data:
