@@ -1,5 +1,5 @@
 import time
-from machine import Pin, PWM
+from machine import Pin, PWM, ADC
 import config
 
 # --- GESTOS DEL BOTÓN DE CONTROL ---
@@ -19,19 +19,60 @@ led_azul = PWM(Pin(config.PIN_LED_AZUL), freq=config.PWM_FREQ_LED)
 buzzer = PWM(Pin(config.PIN_BUZZER))
 buzzer.duty(0)
 
+# --- INICIALIZACIÓN DEL SENSOR LDR (FOTORESISTENCIA) ---
+try:
+    ldr_adc = ADC(Pin(config.PIN_LDR))
+    ldr_adc.atten(ADC.ATTN_11DB)  # Configurar atenuación para rango 0V-3.3V
+except Exception as e:
+    print("[HARDWARE WARNING] No se pudo inicializar LDR en pin {}: {}".format(config.PIN_LDR, e))
+    ldr_adc = None
+
 # --- VARIABLES DE ESTADO PARA GESTOS (BOTÓN 2) ---
 _last_state = 1
 _press_time = 0
 _release_time = 0
 _click_count = 0
 _long_press_triggered = False
+_last_ldr_print = 0
 
 # --- FUNCIONES DE CONTROL DE HARDWARE ---
+def leer_factor_brillo_ldr():
+    """
+    Lee el nivel de luz ambiental desde la LDR y retorna un factor de brillo
+    entre config.LDR_MIN_FACTOR y config.LDR_MAX_FACTOR.
+    """
+    global _last_ldr_print
+    if ldr_adc is None:
+        return 1.0
+    try:
+        val = ldr_adc.read()
+        # Clampear el valor en el rango esperado
+        val_clamped = min(max(val, config.LDR_MIN_VAL), config.LDR_MAX_VAL)
+        # Interpolar linealmente entre el rango ADC y el rango de factor
+        rango_adc = config.LDR_MAX_VAL - config.LDR_MIN_VAL
+        rango_factor = config.LDR_MAX_FACTOR - config.LDR_MIN_FACTOR
+        if rango_adc <= 0:
+            factor = config.LDR_MAX_FACTOR
+        else:
+            factor = config.LDR_MIN_FACTOR + ((val_clamped - config.LDR_MIN_VAL) / rango_adc) * rango_factor
+        
+        # Printear constantemente cada 1 segundo (1000 ms) para no inundar la consola
+        ahora = time.ticks_ms()
+        if time.ticks_diff(ahora, _last_ldr_print) >= 1000:
+            print("[LDR] ADC Raw: {} | Brillo LEDs: {:.1f}%".format(val, factor * 100))
+            _last_ldr_print = ahora
+            
+        return factor
+    except Exception as e:
+        print("[HARDWARE ERROR] Fallo al leer LDR:", e)
+        return 1.0
+
 def set_color_pwm(r_duty, g_duty, b_duty):
-    """Establece la intensidad de cada canal RGB (0 a 1023)"""
-    led_rojo.duty(int(r_duty))
-    led_verde.duty(int(g_duty))
-    led_azul.duty(int(b_duty))
+    """Establece la intensidad de cada canal RGB (0 a 1023) escalado según la luz ambiental (LDR)"""
+    factor = leer_factor_brillo_ldr()
+    led_rojo.duty(int(r_duty * factor))
+    led_verde.duty(int(g_duty * factor))
+    led_azul.duty(int(b_duty * factor))
 
 def sonar_buzzer(frecuencia, encendido):
     """Controla el encendido y frecuencia del buzzer"""

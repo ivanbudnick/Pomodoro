@@ -11,6 +11,24 @@ PIN_LED_VERDE = 27
 PIN_LED_AZUL = 26
 PIN_BUZZER = 13
 
+# --- RESERVA DE PINES DISPLAY 7-SEGMENTOS (74HC595) ---
+PIN_74HC595_DS = 4             # Datos Seriales (Data Serial)
+PIN_74HC595_SH_CP = 16         # Reloj de desplazamiento (Shift Clock)
+PIN_74HC595_ST_CP = 17         # Reloj de almacenamiento (Latch Clock)
+PIN_DISPLAY_DIG1 = 18          # Selector de dígito 1 (Multiplexación)
+PIN_DISPLAY_DIG2 = 19          # Selector de dígito 2 (Multiplexación)
+PIN_DISPLAY_DIG3 = 21          # Selector de dígito 3 (Multiplexación)
+PIN_DISPLAY_DIG4 = 23          # Selector de dígito 4 (Multiplexación)
+
+# --- CONFIGURACIÓN DE FOTORESISTENCIA (LDR) ---
+PIN_LDR = 34                   # Pin analógico de entrada (ADC1 canal 6)
+LDR_MIN_VAL = 10               # Valor ADC mínimo esperado (oscuridad o sensor tapado)
+LDR_MAX_VAL = 150              # Valor ADC máximo esperado (brillo alto para 100% de luz)
+LDR_MIN_FACTOR = 0.05          # Brillo mínimo (5% del duty cycle calculado) para un cambio exagerado y visible
+LDR_MAX_FACTOR = 1.0           # Brillo máximo (100%) con luz plena
+
+
+
 # --- CONFIGURACIÓN DE PWM ---
 PWM_FREQ_LED = 1000
 DUTY_MAX = 1023
@@ -23,7 +41,7 @@ INTERVALO_ALERTA_MS = 500
 TIEMPO_TRANSICION_PITIDO_MS = 100
 DEBOUNCE_BOTON_MS = 300
 LOOP_SLEEP_MS = 10
-TIEMPO_INACTIVIDAD_SLEEP_MS = 5000  # 5 segundos de inactividad para entrar en Deep Sleep (Testing rápido)
+TIEMPO_INACTIVIDAD_SLEEP_MS = 60000  # 60 segundos (1 minuto) de inactividad para entrar en Deep Sleep
 
 # --- CONSTANTES DE GESTOS PARA BOTÓN 2 ---
 TIEMPO_MANTENER_STANDBY_MS = 2000  # 2 segundos de presión para volver a Standby
