@@ -1,5 +1,7 @@
 import os
 import sqlite3
+import threading
+import json
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, render_template_string
 
@@ -637,6 +639,57 @@ def latest_config():
     except Exception as e:
         print("[BD FLASK ERROR] Fallo al leer última configuración:", e)
         return jsonify({"status": "error", "message": str(e)}), 400
+
+def run_mqtt_listener():
+    """Hilo secundario para conectarse al Broker MQTT y recibir reportes de sesión de la ESP32"""
+    import paho.mqtt.client as mqtt
+    
+    def on_connect(client, userdata, flags, rc):
+        print(f"[MQTT CLIENT] Conectado al Broker con código de resultado: {rc}", flush=True)
+        client.subscribe("pomodoro/sesiones")
+        print("[MQTT CLIENT] Suscrito a 'pomodoro/sesiones'", flush=True)
+
+    def on_message(client, userdata, message):
+        try:
+            payload = message.payload.decode("utf-8")
+            print(f"[MQTT MESSAGE] Recibido payload: {payload}", flush=True)
+            data = json.loads(payload)
+            
+            dispositivo = data.get('dispositivo', 'ESP32_Pomodoro')
+            tipo_sesion = data.get('tipo_sesion', 'focus')
+            ciclo_num = int(data.get('ciclo_num', 1))
+            duracion_s = int(data.get('duracion_s', 0))
+            
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO sesiones_pomodoro (dispositivo, tipo_sesion, ciclo_num, duracion_s)
+                VALUES (?, ?, ?, ?)
+            ''', (dispositivo, tipo_sesion, ciclo_num, duracion_s))
+            conn.commit()
+            conn.close()
+            print(f"[SQLITE MQTT] Guardada sesión de {tipo_sesion} #{ciclo_num} ({duracion_s}s) desde MQTT", flush=True)
+        except Exception as e:
+            print("[MQTT LISTENER ERROR] Error procesando mensaje MQTT:", e, flush=True)
+
+    try:
+        # Intentar paho-mqtt v2, si no v1 (compatibilidad)
+        try:
+            client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION1)
+        except AttributeError:
+            client = mqtt.Client()
+            
+        client.on_connect = on_connect
+        client.on_message = on_message
+        
+        print("[MQTT LISTENER] Conectando a broker.hivemq.com:1883...", flush=True)
+        client.connect("broker.hivemq.com", 1883, 60)
+        client.loop_forever()
+    except Exception as e:
+        print("[MQTT LISTENER ERROR] Fallo en cliente MQTT:", e, flush=True)
+
+# Iniciar escuchador MQTT en segundo plano
+threading.Thread(target=run_mqtt_listener, daemon=True).start()
 
 if __name__ == '__main__':
     print("\n=======================================================")

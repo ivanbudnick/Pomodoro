@@ -31,8 +31,37 @@ color_alerta_actual = "azul"        # Color de alerta contextual (azul tras desc
 pausado = False
 tiempo_acumulado_ms = 0
 
+def enviar_reporte_mqtt(tipo_sesion, ciclo_num, duracion_s):
+    """Intenta enviar un reporte a la PC usando MQTT, retorna True si tiene éxito"""
+    try:
+        from umqtt.simple import MQTTClient
+        import ujson as json
+        
+        client = MQTTClient("esp32_pomodoro_client", config.MQTT_BROKER, port=config.MQTT_PORT)
+        client.connect()
+        
+        payload = json.dumps({
+            "dispositivo": "ESP32_Pomodoro",
+            "tipo_sesion": tipo_sesion,
+            "ciclo_num": ciclo_num,
+            "duracion_s": duracion_s
+        })
+        
+        client.publish(config.MQTT_TOPIC_SESIONES, payload)
+        client.disconnect()
+        print("[MQTT REPORT] Sesión '{}' (#{}) enviada exitosamente por MQTT.".format(tipo_sesion, ciclo_num))
+        return True
+    except Exception as e:
+        print("[MQTT REPORT WARNING] No se pudo enviar reporte por MQTT ({}). Intentando fallback por HTTP...".format(e))
+        return False
+
 def enviar_reporte_flask(tipo_sesion, ciclo_num, duracion_s):
-    """Envía un reporte HTTP POST a la PC usando urequests al finalizar una sesión"""
+    """Envía un reporte de sesión. Primero intenta usar MQTT y, si falla, cae en HTTP POST"""
+    # 1. Intentar MQTT
+    if enviar_reporte_mqtt(tipo_sesion, ciclo_num, duracion_s):
+        return
+        
+    # 2. Fallback HTTP POST
     try:
         import urequests
         payload = {
@@ -46,7 +75,7 @@ def enviar_reporte_flask(tipo_sesion, ciclo_num, duracion_s):
         print("[FLASK REPORT] Sesión '{}' (#{}) enviada a la PC. HTTP: {}".format(tipo_sesion, ciclo_num, res.status_code))
         res.close()
     except Exception as e:
-        print("[FLASK REPORT WARNING] No se pudo enviar el reporte a la PC:", e)
+        print("[FLASK REPORT WARNING] No se pudo enviar el reporte a la PC por HTTP:", e)
 
 def obtener_dict_estado():
     """Retorna un diccionario completo de estado para la API del servidor web y dashboard"""

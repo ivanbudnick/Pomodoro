@@ -2,6 +2,9 @@
 WIFI_SSID = "El Fi del Wi"            # Red WiFi real
 WIFI_PASSWORD = "teamolionelscaloni"  # Contraseña WiFi real
 FLASK_SERVER_URL = "http://192.168.0.125:5001/datos"  # Puerto 5001 en PC
+MQTT_BROKER = "broker.hivemq.com"
+MQTT_PORT = 1883
+MQTT_TOPIC_SESIONES = "pomodoro/sesiones"
 
 # --- CONFIGURACIÓN DE PINES (ESP32 REAL) ---
 PIN_BTN = 25                   # Botón 1: Inicio / Reanudación (Cambiado a GPIO 25 para evitar conflicto de cristal de 32kHz en ESP-32S)
