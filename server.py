@@ -1,19 +1,49 @@
+# ==============================================================================
+# SERVIDOR HTTP EMBUDIDO Y CONFIGURADOR DE RED (PORTAL CAUTIVO)
+# ==============================================================================
+# Este módulo provee toda la infraestructura de red del Pomodoro Pro:
+# 1. Portal Cautivo (WiFi Manager): Si no hay WiFi configurado o la conexión falla,
+#    el ESP32 se convierte en un Punto de Acceso (AP) y levanta un servidor HTTP
+#    en 192.168.4.1 para que el usuario ingrese la SSID y la contraseña.
+# 2. Servidor Web Dashboard: Sirve la interfaz web unificada (html_template.py)
+#    y expone APIs REST en JSON para configurar parámetros o leer el estado en vivo.
+# 3. Sincronización Remota: Al iniciar en línea, sincroniza los tiempos con la
+#    base de datos de la PC (Flask) y viceversa.
+#
+# Gestión de Memoria (RAM):
+# Para evitar errores fatales de falta de memoria (ENOMEM), las páginas HTML
+# pesadas se sirven por trozos o "chunks" de 512 bytes. Esto previene que el buffer
+# de red consuma bloques de memoria contiguos excesivamente grandes.
+
 import time
 import socket
 import network
 import config
 import pomodoro
-import html_template
 
 try:
     import ujson as json
 except ImportError:
     import json
 
+try:
+    import urequests
+except ImportError:
+    urequests = None
+
+# Instancia global del socket del servidor
 server_socket = None
 
+# ==============================================================================
+# PORTAL CAUTIVO (WIFI MANAGER DE ARRANQUE)
+# ==============================================================================
+
 def run_captive_portal():
-    """Inicia un Punto de Acceso (AP) y un servidor socket HTTP básico para configurar el Wi-Fi."""
+    """
+    Inicia un punto de acceso (AP) local e inicia un servidor socket síncrono.
+    Cualquier petición al puerto 80 del servidor servirá un formulario web
+    con un escaneo en vivo de las redes Wi-Fi cercanas.
+    """
     import network
     import socket
     import time
@@ -28,13 +58,13 @@ def run_captive_portal():
         print("[WIFI AP ERROR] No se pudo escanear redes:", e)
         networks = []
         
-    # Desactivar STA temporalmente para liberar la radio y evitar interferencia en el AP
+    # Desactivar STA temporalmente para liberar la radio y evitar interferencia
     try:
         wlan_sta.active(False)
     except:
         pass
         
-    # Filtrar duplicados y nombres vacíos
+    # Filtrar duplicados en redes encontradas (misma SSID en distintos canales)
     seen = set()
     unique_ssids = []
     for net in networks:
@@ -46,16 +76,17 @@ def run_captive_portal():
         except:
             pass
             
-    # Formatear opciones HTML
+    # Construir opciones del selector <select> en HTML
     options = ""
     for ssid in unique_ssids:
         options += '<option value="{0}">{0}</option>\n'.format(ssid)
     if not options:
         options = '<option value="">No se encontraron redes</option>'
 
-    # 2. Configurar y activar el Access Point de forma explícita
+    # 2. Configurar y activar el Access Point local (AP)
     ap = network.WLAN(network.AP_IF)
     ap.active(True)
+    # Dirección IP predeterminada: 192.168.4.1
     ap.ifconfig(('192.168.4.1', '255.255.255.0', '192.168.4.1', '8.8.8.8'))
     ap.config(essid="Pomodoro-WiFi-Manager", authmode=network.AUTH_OPEN)
     
@@ -66,7 +97,7 @@ def run_captive_portal():
     print(" Abra un navegador e ingrese a: http://{}".format(ap_ip))
     print("==========================================\n")
     
-    # 3. Crear Socket y atender peticiones
+    # 3. Abrir socket TCP de escucha síncrono en puerto 80
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(('', 80))
@@ -208,12 +239,13 @@ def run_captive_portal():
             req = req_data.decode('utf-8', 'ignore')
             print("[WIFI AP] Petición HTTP recibida (línea 1):", req.split('\r\n')[0])
             
+            # Procesar el envío del formulario (POST)
             if "POST /save" in req:
                 body = ""
                 if '\r\n\r\n' in req:
                     body = req.split('\r\n\r\n', 1)[1]
                 
-                # Intentar recibir el resto del body si es necesario
+                # Leer bytes remanentes del body si no se completó en la primera ráfaga
                 if not body or '=' not in body:
                     try:
                         time.sleep_ms(50)
@@ -222,6 +254,7 @@ def run_captive_portal():
                     except:
                         pass
                 
+                # Decodificar de forma artesanal parámetros multipart (SSID y Contraseña)
                 params = {}
                 for part in body.split('&'):
                     if '=' in part:
@@ -247,11 +280,11 @@ def run_captive_portal():
                 
                 print("[WIFI AP] SSID a conectar recibida:", ssid)
                 
-                # Guardar en archivo wifi.json
+                # Guardar de forma persistente las nuevas credenciales en wifi.json
                 with open("wifi.json", "w") as f:
                     json.dump({"ssid": ssid, "password": password}, f)
                 
-                # Responder al cliente
+                # Responder con éxito y forzar un reinicio del microcontrolador
                 resp_success = html_success.replace("[SSID]", ssid)
                 header = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n"
                 conn.sendall(header)
@@ -263,11 +296,11 @@ def run_captive_portal():
                 import machine
                 machine.reset()
             else:
+                # Servir el formulario de configuración en fragmentos pequeños (Streaming)
                 resp_form = html_template_page.replace("[OPTIONS]", options)
                 header = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n"
                 conn.sendall(header)
                 
-                # Enviar la página en fragmentos para evitar problemas de buffer y memoria
                 chunk_size = 512
                 for i in range(0, len(resp_form), chunk_size):
                     conn.sendall(resp_form[i:i+chunk_size])
@@ -280,18 +313,32 @@ def run_captive_portal():
             except:
                 pass
 
-# --- CONEXIÓN WIFI ---
+# ==============================================================================
+# CONEXIÓN Y SINCRONIZACIÓN DE RED
+# ==============================================================================
+
+def _retornar_ip_conexion(wlan):
+    """
+    Helper para imprimir información de red en la consola y retornar la IP.
+    Evita código duplicado al evaluar el estado de conexión de la placa.
+    """
+    ip = wlan.ifconfig()[0]
+    print("\n==========================================")
+    print(" ¡CONECTADO A WIFI EXITOSAMENTE!")
+    print(" Dirección IP de la ESP32: http://{}".format(ip))
+    print("==========================================\n")
+    return ip
+
 def connect_wifi():
-    """Establece conexión a la red WiFi configurada. Si falla o no hay red, inicia el Portal Cautivo."""
+    """
+    Conecta al Punto de Acceso configurado localmente.
+    Si no hay credenciales o la conexión falla tras 12 segundos,
+    inicia automáticamente el Portal Cautivo de configuración.
+    """
     try:
         wlan = network.WLAN(network.STA_IF)
         if wlan.isconnected():
-            ip = wlan.ifconfig()[0]
-            print("\n==========================================")
-            print(" ¡CONECTADO A WIFI EXITOSAMENTE!")
-            print(" Dirección IP de la ESP32: http://{}".format(ip))
-            print("==========================================\n")
-            return ip
+            return _retornar_ip_conexion(wlan)
 
         try:
             wlan.active(False)
@@ -308,6 +355,8 @@ def connect_wifi():
 
         print("Conectando a WiFi '{}'...".format(config.WIFI_SSID))
         wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD)
+        
+        # Espera activa no bloqueante de 12 segundos por timeout
         timeout = 12
         start = time.time()
         while not wlan.isconnected() and (time.time() - start) < timeout:
@@ -316,12 +365,7 @@ def connect_wifi():
         print("")
         
         if wlan.isconnected():
-            ip = wlan.ifconfig()[0]
-            print("\n==========================================")
-            print(" ¡CONECTADO A WIFI EXITOSAMENTE!")
-            print(" Dirección IP de la ESP32: http://{}".format(ip))
-            print("==========================================\n")
-            return ip
+            return _retornar_ip_conexion(wlan)
         else:
             print("\n[ADVERTENCIA] No se pudo conectar a la red WiFi '{}'.".format(config.WIFI_SSID))
             run_captive_portal()
@@ -332,9 +376,11 @@ def connect_wifi():
         return "Offline"
 
 def sincronizar_config_pc():
-    """Descarga e impone la última configuración guardada en la base de datos de la PC"""
+    """Descarga e impone la configuración horaria de la Base de Datos centralizada (Flask) en la PC"""
+    if urequests is None:
+        print("[SYNC WARNING] Modulo urequests no disponible.")
+        return
     try:
-        import urequests
         url = config.FLASK_SERVER_URL.replace("/datos", "/api/latest_config")
         print("[SYNC] Descargando última configuración de la PC desde {}...".format(url))
         res = urequests.get(url)
@@ -353,11 +399,16 @@ def sincronizar_config_pc():
         res.close()
     except Exception as e:
         print("[SYNC WARNING] No se pudo conectar a la PC para sincronizar:", e)
+    finally:
+        import gc
+        gc.collect()
 
 def enviar_config_a_pc():
-    """Respalda la configuración actual de la ESP32 en la base de datos de la PC"""
+    """Respalda la configuración actual del ESP32 en la base de datos centralizada de la PC"""
+    if urequests is None:
+        print("[SYNC REPORT WARNING] Modulo urequests no disponible.")
+        return
     try:
-        import urequests
         url = config.FLASK_SERVER_URL.replace("/datos", "/api/save_config")
         payload = {
             "tiempo_focus": config.tiempo_focus_s,
@@ -371,9 +422,16 @@ def enviar_config_a_pc():
         res.close()
     except Exception as e:
         print("[SYNC REPORT WARNING] No se pudo respaldar la configuración en la PC:", e)
+    finally:
+        import gc
+        gc.collect()
 
-# --- PROCESAMIENTO DE PARÁMETROS Y CLIENTES HTTP ---
+# ==============================================================================
+# PROCESADORES DE APIS HTTP
+# ==============================================================================
+
 def procesar_config_query(query_str):
+    """Parsea argumentos pasados en la URL (GET query parameters) como /?focus=1500"""
     updated = False
     for par in query_str.split('&'):
         if '=' in par:
@@ -400,6 +458,7 @@ def procesar_config_query(query_str):
         enviar_config_a_pc()
 
 def procesar_config_body(body_str):
+    """Parsea el cuerpo JSON de peticiones POST para sobreescribir la configuración"""
     try:
         data = json.loads(body_str)
         updated = False
@@ -436,10 +495,20 @@ def procesar_config_body(body_str):
     except Exception as e:
         print("[HTTP POST ERROR] Error decodificando JSON de configuración:", e)
 
+# ==============================================================================
+# ATENCIÓN DE CLIENTES Y SERVIDOR
+# ==============================================================================
 
 def atender_cliente_http(conn):
+    """
+    Parsea las rutas HTTP del cliente y responde con cabeceras y payloads.
+    - GET /: Sirve el Dashboard HTML de forma fragmentada.
+    - GET /api/config: Retorna la configuración horaria en JSON.
+    - POST /api/config: Recibe y guarda la nueva configuración JSON.
+    - GET /api/state: Retorna el estado en tiempo real del reloj.
+    """
     try:
-        pomodoro.registrar_actividad()
+        pomodoro.registrar_actividad() # Reactivar timer de Deep Sleep ante interacción web
         conn.settimeout(0.3)
         raw_data = conn.recv(1024)
         if not raw_data:
@@ -460,20 +529,25 @@ def atender_cliente_http(conn):
         metodo = partes[0]
         ruta = partes[1]
         
-        # Ruta Principal Dashboard /
+        # Ruta raíz: Dashboard
         if ruta == '/' or ruta.startswith('/?'):
             if '?' in ruta:
                 procesar_config_query(ruta.split('?', 1)[1])
             header = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n"
             conn.sendall(header)
             
-            # Enviar la página en fragmentos para evitar problemas de buffer y memoria en MicroPython
-            html_data = html_template.HTML_PAGE
-            chunk_size = 512
-            for i in range(0, len(html_data), chunk_size):
-                conn.sendall(html_data[i:i+chunk_size])
+            # Streaming por fragmentos de 512 bytes leyendo directamente de Flash para prevenir ENOMEM
+            try:
+                with open("dashboard.html", "r") as f:
+                    while True:
+                        chunk = f.read(512)
+                        if not chunk:
+                            break
+                        conn.sendall(chunk)
+            except Exception as e:
+                print("[HTTP SERVER ERROR] No se pudo leer dashboard.html:", e)
             
-        # API /api/config (GET y POST)
+        # API Configuración
         elif ruta == '/api/config':
             if metodo == 'POST':
                 if '\r\n\r\n' in req_text:
@@ -499,7 +573,7 @@ def atender_cliente_http(conn):
             header = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
             conn.sendall(header + body_res)
 
-        # API /api/state (GET)
+        # API Estado en Tiempo Real
         elif ruta == '/api/state':
             body_res = json.dumps(pomodoro.obtener_dict_estado())
             header = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n"
@@ -518,23 +592,27 @@ def atender_cliente_http(conn):
             pass
 
 def iniciar_servidor_http():
-    """Inicializa el socket del servidor HTTP en el puerto 80"""
+    """Abre el socket principal de escucha TCP puerto 80 de forma no bloqueante"""
     global server_socket
+    import gc
+    gc.collect()
     try:
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind(('', 80))
         server_socket.listen(5)
+        # Configurar en modo no bloqueante para evitar detener la máquina de estados en main.py
         server_socket.setblocking(False)
         print("Servidor HTTP iniciado en puerto 80. Bucle Pomodoro activo.")
     except Exception as e:
         print("[ADVERTENCIA] No se pudo iniciar el servidor HTTP ({}). El Pomodoro funcionará en modo local.".format(e))
 
 def atender_peticiones_http():
-    """Verifica si hay peticiones HTTP entrantes de forma no bloqueante"""
+    """Llamado periódicamente para verificar de forma instantánea si hay peticiones TCP pendientes"""
     if server_socket is not None:
         try:
             conn, addr = server_socket.accept()
             atender_cliente_http(conn)
         except OSError:
+            # Captura el error de 'no data available' producido al ser no bloqueante
             pass
