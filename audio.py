@@ -6,7 +6,7 @@
 #
 # Generación de Notas: Se utiliza modulación de ancho de pulso (PWM). Al cambiar
 # la frecuencia del pin PWM, el diafragma del zumbador vibra a esa velocidad en Hz,
-# produciendo notas musicales del sistema templado occidental.
+# produciendo notas musicales del sistema.
 #
 # Técnica de Articulación (Silencios): Para evitar que las notas de una melodía se
 # fusionen en un único zumbido continuo, la función '_tocar_nota' impone siempre

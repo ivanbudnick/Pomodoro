@@ -529,6 +529,9 @@ def atender_cliente_http(conn):
         metodo = partes[0]
         ruta = partes[1]
         
+        # Ya se recibió la petición con éxito, aumentamos el timeout a 2.0s para el envío de datos (evita ETIMEDOUT con archivos grandes como dashboard.html)
+        conn.settimeout(2.0)
+        
         # Ruta raíz: Dashboard
         if ruta == '/' or ruta.startswith('/?'):
             if '?' in ruta:
@@ -536,16 +539,18 @@ def atender_cliente_http(conn):
             header = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n"
             conn.sendall(header)
             
-            # Streaming por fragmentos de 512 bytes leyendo directamente de Flash para prevenir ENOMEM
+            # Streaming por fragmentos de 512 bytes leyendo directamente de Flash en modo binario
             try:
-                with open("dashboard.html", "r") as f:
+                with open("dashboard.html", "rb") as f:
                     while True:
                         chunk = f.read(512)
                         if not chunk:
                             break
                         conn.sendall(chunk)
+                        # Pausa de 10ms para permitir que la pila de red (TCP/IP) envíe los datos y no sature el búfer
+                        time.sleep_ms(10)
             except Exception as e:
-                print("[HTTP SERVER ERROR] No se pudo leer dashboard.html:", e)
+                print("[HTTP SERVER ERROR] No se pudo leer o enviar dashboard.html:", e)
             
         # API Configuración
         elif ruta == '/api/config':
