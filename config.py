@@ -1,6 +1,6 @@
 # --- CONFIGURACIÓN DE WIFI Y SERVIDOR FLASK ---
-WIFI_SSID = "El Fi del Wi"            # Red WiFi real
-WIFI_PASSWORD = "teamolionelscaloni"  # Contraseña WiFi real
+WIFI_SSID = ""            # Se cargará dinámicamente desde wifi.json
+WIFI_PASSWORD = ""        # Se cargará dinámicamente desde wifi.json
 FLASK_SERVER_URL = "http://192.168.0.125:5001/datos"  # Puerto 5001 en PC
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
@@ -107,6 +107,31 @@ def cargar_de_disco():
     except Exception as e:
         print("[CONFIG ERROR] Fallo al leer config.json local:", e)
 
-# Cargar configuración del disco al importar el módulo
+def cargar_wifi():
+    """Carga SSID y contraseña del Wi-Fi desde wifi.json en la flash de la ESP32"""
+    global WIFI_SSID, WIFI_PASSWORD
+    try:
+        import os
+        import ujson as json
+        try:
+            os.stat("wifi.json")
+        except OSError:
+            print("[WIFI CONFIG] No existe wifi.json local. Se iniciará en modo Portal Cautivo.")
+            WIFI_SSID = ""
+            WIFI_PASSWORD = ""
+            return
+            
+        with open("wifi.json", "r") as f:
+            data = json.load(f)
+            WIFI_SSID = data.get("ssid", "")
+            WIFI_PASSWORD = data.get("password", "")
+        print("[WIFI CONFIG] Credenciales de Wi-Fi cargadas desde wifi.json.")
+    except Exception as e:
+        print("[WIFI CONFIG ERROR] Fallo al cargar wifi.json:", e)
+        WIFI_SSID = ""
+        WIFI_PASSWORD = ""
+
+# Cargar configuración y credenciales de Wi-Fi del disco al importar el módulo
 cargar_de_disco()
+cargar_wifi()
 

@@ -12,9 +12,277 @@ except ImportError:
 
 server_socket = None
 
+def run_captive_portal():
+    """Inicia un Punto de Acceso (AP) y un servidor socket HTTP básico para configurar el Wi-Fi."""
+    import network
+    import socket
+    import time
+    
+    # 1. Escanear redes cercanas utilizando la interfaz STA
+    wlan_sta = network.WLAN(network.STA_IF)
+    wlan_sta.active(True)
+    print("[WIFI AP] Escaneando redes Wi-Fi cercanas...")
+    try:
+        networks = wlan_sta.scan()
+    except Exception as e:
+        print("[WIFI AP ERROR] No se pudo escanear redes:", e)
+        networks = []
+        
+    # Desactivar STA temporalmente para liberar la radio y evitar interferencia en el AP
+    try:
+        wlan_sta.active(False)
+    except:
+        pass
+        
+    # Filtrar duplicados y nombres vacíos
+    seen = set()
+    unique_ssids = []
+    for net in networks:
+        try:
+            ssid = net[0].decode('utf-8', 'ignore').strip()
+            if ssid and ssid not in seen:
+                seen.add(ssid)
+                unique_ssids.append(ssid)
+        except:
+            pass
+            
+    # Formatear opciones HTML
+    options = ""
+    for ssid in unique_ssids:
+        options += '<option value="{0}">{0}</option>\n'.format(ssid)
+    if not options:
+        options = '<option value="">No se encontraron redes</option>'
+
+    # 2. Configurar y activar el Access Point de forma explícita
+    ap = network.WLAN(network.AP_IF)
+    ap.active(True)
+    ap.ifconfig(('192.168.4.1', '255.255.255.0', '192.168.4.1', '8.8.8.8'))
+    ap.config(essid="Pomodoro-WiFi-Manager", authmode=network.AUTH_OPEN)
+    
+    ap_ip = ap.ifconfig()[0]
+    print("\n==========================================")
+    print(" ¡PORTAL CAUTIVO DE CONFIGURACIÓN ACTIVO!")
+    print(" Conéctese a la red Wi-Fi: Pomodoro-WiFi-Manager")
+    print(" Abra un navegador e ingrese a: http://{}".format(ap_ip))
+    print("==========================================\n")
+    
+    # 3. Crear Socket y atender peticiones
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(('', 80))
+    s.listen(1)
+    
+    html_template_page = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuración Wi-Fi Pomodoro</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #06080f;
+            background-image: radial-gradient(circle at top, #141725, #06080f);
+            color: #f3f4f6;
+            margin: 0;
+            padding: 24px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        .card {
+            width: 100%;
+            max-width: 400px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 18px;
+            padding: 32px;
+            box-sizing: border-box;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        h2 {
+            margin-top: 0;
+            margin-bottom: 24px;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #fff;
+            text-align: center;
+        }
+        .field-label {
+            display: block;
+            font-size: 0.8rem;
+            color: #8a8f98;
+            margin-bottom: 6px;
+            text-align: left;
+        }
+        select, input {
+            width: 100%;
+            padding: 12px 16px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.01);
+            color: #fff;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            box-sizing: border-box;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        select:focus, input:focus {
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+        select option {
+            background: #0d0f18;
+            color: #fff;
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: #5b8ce0;
+            border: none;
+            color: #fff;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #4a7bd0;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Configurar Wi-Fi</h2>
+        <form method="POST" action="/save">
+            <label class="field-label">Seleccionar Red Cercana</label>
+            <select name="ssid">
+                [OPTIONS]
+            </select>
+            <label class="field-label">Contraseña de la Red</label>
+            <input type="password" name="password" placeholder="Contraseña">
+            <button type="submit">Conectar y Reiniciar</button>
+        </form>
+    </div>
+</body>
+</html>"""
+
+    html_success = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuración Guardada</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #06080f;
+            color: #52be90;
+            text-align: center;
+            padding: 40px 24px;
+        }
+        h2 { color: #52be90; font-size: 1.8rem; margin-bottom: 12px; }
+        p { color: #8a8f98; font-size: 1rem; }
+    </style>
+</head>
+<body>
+    <h2>¡Configuración Guardada!</h2>
+    <p>La ESP32 se está reiniciando para conectarse a la red <strong>[SSID]</strong>.</p>
+</body>
+</html>"""
+
+    while True:
+        try:
+            conn, addr = s.accept()
+            print("[WIFI AP] Conexión entrante desde:", addr)
+            conn.settimeout(1.0)
+            req_data = conn.recv(1024)
+            if not req_data:
+                print("[WIFI AP] Petición vacía recibida. Cerrando conexión.")
+                conn.close()
+                continue
+                
+            req = req_data.decode('utf-8', 'ignore')
+            print("[WIFI AP] Petición HTTP recibida (línea 1):", req.split('\r\n')[0])
+            
+            if "POST /save" in req:
+                body = ""
+                if '\r\n\r\n' in req:
+                    body = req.split('\r\n\r\n', 1)[1]
+                
+                # Intentar recibir el resto del body si es necesario
+                if not body or '=' not in body:
+                    try:
+                        time.sleep_ms(50)
+                        more = conn.recv(512).decode('utf-8', 'ignore')
+                        body += more
+                    except:
+                        pass
+                
+                params = {}
+                for part in body.split('&'):
+                    if '=' in part:
+                        k, v = part.split('=', 1)
+                        v = v.replace('+', ' ')
+                        res = ""
+                        i = 0
+                        while i < len(v):
+                            if v[i] == '%':
+                                try:
+                                    res += chr(int(v[i+1:i+3], 16))
+                                    i += 3
+                                except:
+                                    res += v[i]
+                                    i += 1
+                            else:
+                                res += v[i]
+                                i += 1
+                        params[k] = res
+                        
+                ssid = params.get("ssid", "")
+                password = params.get("password", "")
+                
+                print("[WIFI AP] SSID a conectar recibida:", ssid)
+                
+                # Guardar en archivo wifi.json
+                with open("wifi.json", "w") as f:
+                    json.dump({"ssid": ssid, "password": password}, f)
+                
+                # Responder al cliente
+                resp_success = html_success.replace("[SSID]", ssid)
+                header = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n"
+                conn.sendall(header)
+                conn.sendall(resp_success)
+                conn.close()
+                print("[WIFI AP] Respuesta enviada. Reiniciando la placa...")
+                
+                time.sleep(2)
+                import machine
+                machine.reset()
+            else:
+                resp_form = html_template_page.replace("[OPTIONS]", options)
+                header = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n"
+                conn.sendall(header)
+                
+                # Enviar la página en fragmentos para evitar problemas de buffer y memoria
+                chunk_size = 512
+                for i in range(0, len(resp_form), chunk_size):
+                    conn.sendall(resp_form[i:i+chunk_size])
+                conn.close()
+                print("[WIFI AP] Formulario de configuración servido y conexión cerrada.")
+        except Exception as e:
+            print("[WIFI AP ERROR]", e)
+            try:
+                conn.close()
+            except:
+                pass
+
 # --- CONEXIÓN WIFI ---
 def connect_wifi():
-    """Establece conexión a la red WiFi configurada de forma segura contra Soft Reboots"""
+    """Establece conexión a la red WiFi configurada. Si falla o no hay red, inicia el Portal Cautivo."""
     try:
         wlan = network.WLAN(network.STA_IF)
         if wlan.isconnected():
@@ -33,13 +301,14 @@ def connect_wifi():
             
         wlan.active(True)
 
-        if config.WIFI_SSID == "TU_RED_WIFI" or not config.WIFI_SSID:
-            print("\n[INFO] WiFi no configurado (SSID por defecto). Iniciando en modo offline.")
+        if not config.WIFI_SSID:
+            print("\n[WIFI] No se detectaron credenciales Wi-Fi guardadas.")
+            run_captive_portal()
             return "Offline"
 
         print("Conectando a WiFi '{}'...".format(config.WIFI_SSID))
         wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD)
-        timeout = 15
+        timeout = 12
         start = time.time()
         while not wlan.isconnected() and (time.time() - start) < timeout:
             time.sleep(0.5)
@@ -54,10 +323,12 @@ def connect_wifi():
             print("==========================================\n")
             return ip
         else:
-            print("\n[ADVERTENCIA] No se pudo conectar a la red WiFi. Iniciando en modo offline.")
+            print("\n[ADVERTENCIA] No se pudo conectar a la red WiFi '{}'.".format(config.WIFI_SSID))
+            run_captive_portal()
             return "Offline"
     except Exception as e:
-        print("\n[ADVERTENCIA] Error en módulo WiFi ({}). Iniciando en modo offline.".format(e))
+        print("\n[ADVERTENCIA] Error en módulo WiFi ({}).".format(e))
+        run_captive_portal()
         return "Offline"
 
 def sincronizar_config_pc():
