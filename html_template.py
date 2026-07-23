@@ -274,7 +274,7 @@ HTML_PAGE = """<!DOCTYPE html>
             <div class="cycles-container" id="cycles-container">
                 <span class="cycles-label">Ciclos de enfoque requeridos</span>
                 <div class="cycles-input-box">
-                    <input type="number" id="long-cycles" min="2" max="20" value="4">
+                    <input type="number" id="long-cycles" min="2" max="99" value="4" oninput="validateDigits(this)">
                 </div>
             </div>
         </div>
@@ -367,7 +367,12 @@ HTML_PAGE = """<!DOCTYPE html>
             const totalShort = shortM * 60 + shortS;
             const totalLong  = longM * 60 + longS;
             const longActive = document.getElementById('long-active').checked;
-            const longCycles = Math.max(2, parseInt(document.getElementById('long-cycles').value) || 4);
+            const longCyclesVal = parseInt(document.getElementById('long-cycles').value) || 4;
+            if (longActive && longCyclesVal > 99) {
+                alert('La cantidad de ciclos para descanso largo no puede ser mayor a 99.');
+                return;
+            }
+            const longCycles = Math.min(99, Math.max(2, longCyclesVal));
             if (totalFocus <= 0 || totalShort <= 0 || (longActive && totalLong <= 0)) {
                 alert('Las duraciones de los intervalos deben ser mayores a cero segundos.');
                 return;

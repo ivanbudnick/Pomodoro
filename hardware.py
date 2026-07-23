@@ -111,16 +111,24 @@ class Display7Segment:
         - Dígito 2: Vacío.
         - Dígitos 3 y 4: Minutos restantes (o segundos si queda menos de un minuto).
         """
-        # 1. Dígito 1: Vueltas restantes para descanso largo
+        # 1 y 2. Vueltas restantes para descanso largo (1 o 2 dígitos)
         if config.descanso_largo_activo and not ocultar_vueltas:
             target = max(2, config.ciclos_para_descanso_largo)
             vueltas_restantes = target - (ciclos_focus % target)
-            self.buffer[0] = self.NUMEROS[vueltas_restantes]
+            if vueltas_restantes >= 10:
+                decenas = (vueltas_restantes // 10) % 10
+                unidades = vueltas_restantes % 10
+                self.buffer[0] = self.NUMEROS[decenas]
+                self.buffer[1] = self.NUMEROS[unidades]
+            elif 0 <= vueltas_restantes < 10:
+                self.buffer[0] = self.NUMEROS[vueltas_restantes]
+                self.buffer[1] = 0b00000000 # Apagado / Vacío
+            else:
+                self.buffer[0] = 0b01000000 # Mostrar un guión '-' en caso inesperado
+                self.buffer[1] = 0b00000000
         else:
             self.buffer[0] = 0b00000000 # Apagado / Vacío
-            
-        # 2. Dígito 2: Siempre vacío
-        self.buffer[1] = 0b00000000 # Apagado / Vacío
+            self.buffer[1] = 0b00000000 # Apagado / Vacío
         
         # 3. Dígitos 3 y 4: Minutos (o segundos si es < 60s)
         mins = remaining_s // 60

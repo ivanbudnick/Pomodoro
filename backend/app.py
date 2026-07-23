@@ -600,6 +600,8 @@ def save_config():
         tiempo_descanso_largo = int(data.get('tiempo_descanso_largo', 900))
         descanso_largo_activo = 1 if data.get('descanso_largo_activo', True) else 0
         ciclos_para_descanso_largo = int(data.get('ciclos_para_descanso_largo', 4))
+        if descanso_largo_activo == 1 and ciclos_para_descanso_largo > 99:
+            return jsonify({"status": "error", "message": "La cantidad de ciclos para descanso largo no puede ser mayor a 99"}), 400
         
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -688,15 +690,18 @@ def run_mqtt_listener():
     except Exception as e:
         print("[MQTT LISTENER ERROR] Fallo en cliente MQTT:", e, flush=True)
 
-# Iniciar escuchador MQTT en segundo plano solo en el proceso activo (evita duplicación por el auto-reloader de Flask)
-if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
-    threading.Thread(target=run_mqtt_listener, daemon=True).start()
-
 if __name__ == '__main__':
+    # Configuración de debug activa
+    debug_mode = True
+    
+    # Iniciar escuchador MQTT en segundo plano solo en el proceso activo (evita duplicación por el auto-reloader de Flask)
+    if not debug_mode or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        threading.Thread(target=run_mqtt_listener, daemon=True).start()
+
     print("\n=======================================================")
     print(" SERVIDOR FLASK ANALYTICS PRO INICIADO EN PC")
     print(" URL Local Dashboard: http://localhost:5001")
     print(" URL Endpoint ESP32: http://192.168.0.125:5001/datos")
     print(" Base de Datos SQLite: pomodoro.db")
     print("=======================================================\n")
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=debug_mode)
