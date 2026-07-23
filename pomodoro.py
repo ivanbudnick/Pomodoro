@@ -94,18 +94,18 @@ def ejecutar_pomodoro_step():
         registrar_actividad()
     
     # 1. PROCESAR GESTO: RESET IDLE (Mantener presionado 2 segundos) -> vuelve a Standby
-    # 1. PROCESAR GESTO: RESET IDLE (Mantener presionado 2 segundos) -> vuelve a Standby
     if gesto == hardware.GESTO_RESET_IDLE:
         audio.play_reset_idle()
         estado_actual = ESTADO_STANDBY
         pausado = False
         tiempo_acumulado_ms = 0
+        ciclos_focus_consecutivos = 0
         ultimo_titilo = ahora
-        print("[POMODORO] Reset total. Regreso a STANDBY.")
+        print("[POMODORO] Reset total. Regreso a STANDBY. Ciclos de descanso reiniciados.")
         return
 
-    # 2. PROCESAR GESTOS SI NO ESTAMOS EN STANDBY
-    if estado_actual != ESTADO_STANDBY:
+    # 2. PROCESAR GESTOS SI NO ESTAMOS EN STANDBY NI EN ALERTA
+    if estado_actual != ESTADO_STANDBY and estado_actual != ESTADO_ALERTA_TITILANDO:
         # Doble clic -> Resetear fase actual a 0s
         if gesto == hardware.GESTO_RESET_FASE:
             cronometro = ahora
@@ -288,6 +288,30 @@ def ejecutar_pomodoro_step():
             audio.play_start_warm()
             time.sleep_ms(config.DEBOUNCE_BOTON_MS)
 
+    # 5. ACTUALIZAR DISPLAY DE 7 SEGMENTOS
+    if estado_actual == ESTADO_STANDBY or estado_actual == ESTADO_ALERTA_TITILANDO:
+        hardware.display.mostrar_texto("----")
+    else:
+        # FOCUS, DESCANSO CORTO o DESCANSO LARGO
+        duracion_ms = 0
+        ocultar = False
+        if estado_actual == ESTADO_FOCUS:
+            duracion_ms = config.tiempo_focus_s * 1000
+        elif estado_actual == ESTADO_DESCANSO_CORTO:
+            duracion_ms = config.tiempo_descanso_corto_s * 1000
+            ocultar = True
+        elif estado_actual == ESTADO_DESCANSO_LARGO:
+            duracion_ms = config.tiempo_descanso_largo_s * 1000
+            ocultar = True
+            
+        transcurrido = tiempo_acumulado_ms
+        if not pausado:
+            transcurrido += time.ticks_diff(ahora, cronometro)
+            
+        remaining_s = max(0, int((duracion_ms - transcurrido) / 1000))
+        hardware.display.mostrar_pomodoro(remaining_s, ciclos_focus_consecutivos, ocultar_vueltas=ocultar)
+
+
 
 def registrar_actividad():
     """Actualiza la marca de tiempo de la última interacción detectada"""
@@ -307,8 +331,9 @@ def verificar_y_ejecutar_sleep():
             # Melodía de apagado
             audio.play_sleep_in()
             
-            # Apagar el LED RGB completamente
+            # Apagar el LED RGB y el Display completamente
             hardware.set_color_pwm(0, 0, 0)
+            hardware.display.detener()
             
             # Configurar el botón de inicio (GPIO 25) para despertar
             import machine
