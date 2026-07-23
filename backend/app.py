@@ -688,8 +688,9 @@ def run_mqtt_listener():
     except Exception as e:
         print("[MQTT LISTENER ERROR] Fallo en cliente MQTT:", e, flush=True)
 
-# Iniciar escuchador MQTT en segundo plano
-threading.Thread(target=run_mqtt_listener, daemon=True).start()
+# Iniciar escuchador MQTT en segundo plano solo en el proceso activo (evita duplicación por el auto-reloader de Flask)
+if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+    threading.Thread(target=run_mqtt_listener, daemon=True).start()
 
 if __name__ == '__main__':
     print("\n=======================================================")
