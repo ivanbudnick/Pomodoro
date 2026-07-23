@@ -2,10 +2,16 @@ import time
 import machine
 import config
 import pomodoro
-import server
 import audio
 
-# 1. Verificar causa del reinicio para comportamiento inteligente tras Deep Sleep
+# 1. Inicializar Bluetooth BLE inmediatamente (con memoria heap 100% limpia)
+# Esto previene el error [Errno 12] ENOMEM al garantizar un bloque de memoria contiguo libre para NimBLE.
+import gc
+gc.collect()
+pomodoro.inicializar_ble()
+gc.collect()
+
+# 2. Verificar causa del reinicio para comportamiento inteligente tras Deep Sleep
 reset_causa = machine.reset_cause()
 if reset_causa == machine.DEEPSLEEP_RESET:
     print("\n[RESET] Despertado por botón. Iniciando directamente en modo FOCUS.")
@@ -18,15 +24,18 @@ if reset_causa == machine.DEEPSLEEP_RESET:
 else:
     print("\n[RESET] Inicio en frío detectado.")
 
-# 2. Conectar a la red WiFi (si está configurada)
+# 3. Cargar modulo de red y servidor HTTP (plantillas HTML pesadas)
+import server
+
+# 4. Conectar a la red WiFi (si está configurada)
 ip = server.connect_wifi()
 if ip != "Offline":
     server.sincronizar_config_pc()
 
-# 3. Iniciar Servidor HTTP embebido en puerto 80
+# 5. Iniciar Servidor HTTP embebido en puerto 80
 server.iniciar_servidor_http()
 
-print("--> Sistema Pomodoro ESP32 Listo. Esperando interacción por botón o web.\n")
+print("--> Sistema Pomodoro ESP32 Listo. Esperando interacción por botón o web o BLE.\n")
 
 # 4. Bucle Principal No Bloqueante
 while True:

@@ -2,6 +2,7 @@ import time
 import config
 import hardware
 import audio
+import ble_uart
 
 # --- ESTADOS DEL SISTEMA POMODORO PRO ---
 ESTADO_STANDBY         = 0
@@ -30,6 +31,12 @@ color_alerta_actual = "azul"        # Color de alerta contextual (azul tras desc
 # Variables de control de pausa
 pausado = False
 tiempo_acumulado_ms = 0
+
+# --- CONFIGURACIÓN Y VARIABLES DE ESTADO BLE ---
+ble_dispositivo = None
+ultimo_estado_ble = -1
+ultimo_segundo_ble = -1
+ultimo_pausado_ble = None
 
 def enviar_reporte_mqtt(tipo_sesion, ciclo_num, duracion_s):
     """Intenta enviar un reporte a la PC usando MQTT, retorna True si tiene éxito"""
@@ -77,6 +84,83 @@ def enviar_reporte_flask(tipo_sesion, ciclo_num, duracion_s):
     except Exception as e:
         print("[FLASK REPORT WARNING] No se pudo enviar el reporte a la PC por HTTP:", e)
 
+def inicializar_ble():
+    """Inicializa el periférico BLE UART en la ESP32"""
+    global ble_dispositivo
+    import gc
+    gc.collect() # Liberar memoria fragmentada antes de instanciar el stack BLE
+    try:
+        ble_dispositivo = ble_uart.BLEUART("Pomodoro-ESP32")
+        print("[BLE] Servidor inicializado con éxito.")
+    except Exception as e:
+        print("[BLE ERROR] No se pudo inicializar BLE:", e)
+
+def procesar_comandos_ble():
+    """Lee y procesa los comandos seriales entrantes por BLE"""
+    global ble_dispositivo
+    if not ble_dispositivo or not ble_dispositivo.any():
+        return None
+    try:
+        raw_cmd = ble_dispositivo.read()
+        cmd = raw_cmd.decode('utf-8').strip().upper()
+        print("[BLE RX COMANDO]: {}".format(cmd))
+        
+        # Cualquier comando BLE cuenta como actividad del usuario
+        registrar_actividad()
+        
+        if cmd in ("PAUSE", "PLAY", "TOGGLE"):
+            return "PAUSA"
+        elif cmd in ("RESET_FASE", "RESET"):
+            return "RESET_FASE"
+        elif cmd in ("STANDBY", "RESET_IDLE"):
+            return "RESET_IDLE"
+        elif cmd == "START":
+            return "START"
+    except Exception as e:
+        print("[BLE RX ERROR] Error al decodificar comando:", e)
+    return None
+
+def enviar_estado_ble(forzar=False):
+    """Envía el estado actual formateado en un paquete de baja latencia (<20 bytes)"""
+    global ble_dispositivo, ultimo_estado_ble, ultimo_segundo_ble, ultimo_pausado_ble
+    if not ble_dispositivo or not ble_dispositivo.esta_conectado():
+        return
+        
+    ahora = time.ticks_ms()
+    remaining_s = 0
+    if estado_actual in (ESTADO_FOCUS, ESTADO_DESCANSO_CORTO, ESTADO_DESCANSO_LARGO):
+        duracion_ms = 0
+        if estado_actual == ESTADO_FOCUS:
+            duracion_ms = config.tiempo_focus_s * 1000
+        elif estado_actual == ESTADO_DESCANSO_CORTO:
+            duracion_ms = config.tiempo_descanso_corto_s * 1000
+        elif estado_actual == ESTADO_DESCANSO_LARGO:
+            duracion_ms = config.tiempo_descanso_largo_s * 1000
+            
+        transcurrido = tiempo_acumulado_ms
+        if not pausado:
+            transcurrido += time.ticks_diff(ahora, cronometro)
+        remaining_s = max(0, int((duracion_ms - transcurrido) / 1000))
+        
+    # Validar si hay cambios reales para evitar saturación del aire
+    if (forzar or 
+        estado_actual != ultimo_estado_ble or 
+        remaining_s != ultimo_segundo_ble or 
+        pausado != ultimo_pausado_ble):
+        
+        pausado_val = 1 if pausado else 0
+        # Formato: S:<estado>,<pausado>,<segundos_restantes>,<ciclos_completados>\n
+        # Mide aproximadamente 12-16 bytes, ideal para caber en una sola MTU de BLE (20 bytes libres)
+        payload = "S:{},{},{},{}\n".format(estado_actual, pausado_val, remaining_s, ciclos_focus_consecutivos)
+        try:
+            ble_dispositivo.write(payload)
+            # Guardar el último estado reportado con éxito
+            ultimo_estado_ble = estado_actual
+            ultimo_segundo_ble = remaining_s
+            ultimo_pausado_ble = pausado
+        except Exception as e:
+            print("[BLE TX ERROR] No se pudo enviar estado:", e)
+
 def obtener_dict_estado():
     """Retorna un diccionario completo de estado para la API del servidor web y dashboard"""
     ahora = time.ticks_ms()
@@ -118,8 +202,22 @@ def ejecutar_pomodoro_step():
     botón_pulsado = hardware.boton_presionado()
     gesto = hardware.detectar_gesto_boton_control()
     
-    # Registrar actividad ante interacciones físicas o estados activos corriendo
-    if (estado_actual != ESTADO_STANDBY and not pausado) or botón_pulsado or (gesto != hardware.GESTO_NINGUNO):
+    # Procesar gestos recibidos por Bluetooth BLE
+    gesto_ble = procesar_comandos_ble()
+    if gesto_ble == "START" and (estado_actual == ESTADO_STANDBY or estado_actual == ESTADO_ALERTA_TITILANDO):
+        botón_pulsado = True
+    elif gesto_ble == "PAUSA":
+        gesto = hardware.GESTO_PAUSA
+    elif gesto_ble == "RESET_FASE":
+        gesto = hardware.GESTO_RESET_FASE
+    elif gesto_ble == "RESET_IDLE":
+        gesto = hardware.GESTO_RESET_IDLE
+        
+    # Registrar actividad ante interacciones físicas, BLE o estados activos corriendo
+    if ((estado_actual != ESTADO_STANDBY and not pausado) or 
+            botón_pulsado or 
+            (gesto != hardware.GESTO_NINGUNO) or 
+            (gesto_ble is not None)):
         registrar_actividad()
     
     # 1. PROCESAR GESTO: RESET IDLE (Mantener presionado 2 segundos) -> vuelve a Standby
@@ -339,6 +437,9 @@ def ejecutar_pomodoro_step():
             
         remaining_s = max(0, int((duracion_ms - transcurrido) / 1000))
         hardware.display.mostrar_pomodoro(remaining_s, ciclos_focus_consecutivos, ocultar_vueltas=ocultar)
+
+    # 6. ENVIAR ACTUALIZACIÓN DE ESTADO POR BLUETOOTH BLE
+    enviar_estado_ble()
 
 
 
