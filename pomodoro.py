@@ -13,14 +13,12 @@
 #
 # Conectividad:
 # - Reporta automáticamente al servidor Flask local en la PC (vía HTTP o MQTT).
-# - Envía y recibe datos en tiempo real mediante Bluetooth Low Energy (BLE).
 # - Soporta entrada de gestos físicos (clic simple/doble, mantener presionado).
 
 import time
 import config
 import hardware
 import audio
-import ble_uart
 
 try:
     import urequests
@@ -60,12 +58,6 @@ color_alerta_actual = "azul"        # Color contextual de la alerta (azul o verd
 pausado = False
 tiempo_acumulado_ms = 0             # Tiempo ya transcurrido de la fase antes de pausar
 
-# --- CONFIGURACIÓN Y VARIABLES DE ESTADO BLE ---
-ble_dispositivo = None
-ultimo_estado_ble = -1
-ultimo_segundo_ble = -1
-ultimo_pausado_ble = None
-ble_anunciando = False
 
 # ==============================================================================
 # FUNCIONES DE REPORTERÍA (MQTT & REST FLASK)
@@ -149,11 +141,10 @@ def enviar_reporte_flask(tipo_sesion, ciclo_num, duracion_s):
 # ==============================================================================
 # HELPERS DE TEMPORIZACIÓN (OPTIMIZACIÓN DE CÓDIGO)
 # ==============================================================================
-
 def obtener_segundos_restantes(ahora=None):
     """
     Helper centralizado para calcular el tiempo restante en segundos de la fase activa actual.
-    Evita código duplicado en la visualización física, peticiones web y reportes BLE.
+    Evita código duplicado en la visualización física y peticiones web.
     """
     if ahora is None:
         ahora = time.ticks_ms()
@@ -174,92 +165,7 @@ def obtener_segundos_restantes(ahora=None):
         
     return max(0, int((duracion_ms - transcurrido) / 1000))
 
-# ==============================================================================
-# INTEGRACIÓN BLUETOOTH BLE
-# ==============================================================================
 
-def inicializar_ble():
-    """Instancia el servidor BLE y prepara los descriptores GATT"""
-    global ble_dispositivo
-    import gc
-    gc.collect()
-    try:
-        ble_dispositivo = ble_uart.BLEUART("Pomodoro-ESP32")
-        print("[BLE] Servidor inicializado con éxito.")
-    except Exception as e:
-        print("[BLE ERROR] No se pudo inicializar BLE:", e)
-
-def desactivar_ble():
-    """Desactiva por completo el módulo BLE y libera sus recursos de memoria"""
-    global ble_dispositivo
-    if ble_dispositivo is not None:
-        try:
-            ble_dispositivo.detener_anuncios()
-            ble_dispositivo._ble.active(False)
-            print("[BLE] Dispositivo desactivado por completo.")
-        except Exception as e:
-            print("[BLE ERROR] Error al desactivar BLE:", e)
-        finally:
-            ble_dispositivo = None
-            import gc
-            gc.collect()
-
-def procesar_comandos_ble():
-    """
-    Monitorea el puerto serie virtual Bluetooth BLE.
-    Decodifica strings entrantes e interrumpe el flujo normal simulando eventos físicos.
-    """
-    global ble_dispositivo
-    if not ble_dispositivo or not ble_dispositivo.any():
-        return None
-    try:
-        raw_cmd = ble_dispositivo.read()
-        cmd = raw_cmd.decode('utf-8').strip().upper()
-        print("[BLE RX COMANDO]: {}".format(cmd))
-        
-        # Cualquier comando Bluetooth reactiva el temporizador de inactividad
-        registrar_actividad()
-        
-        if cmd in ("PAUSE", "PLAY", "TOGGLE"):
-            return "PAUSA"
-        elif cmd in ("RESET_FASE", "RESET"):
-            return "RESET_FASE"
-        elif cmd in ("STANDBY", "RESET_IDLE"):
-            return "RESET_IDLE"
-        elif cmd == "START":
-            return "START"
-    except Exception as e:
-        print("[BLE RX ERROR] Error al decodificar comando:", e)
-    return None
-
-def enviar_estado_ble(forzar=False):
-    """
-    Transmite el estado interno formateado en texto de baja latencia vía BLE.
-    Solo envía el paquete si hay un cambio real en el estado, pausa o tiempo
-    para evitar congestionar el aire (polling pasivo).
-    """
-    global ble_dispositivo, ultimo_estado_ble, ultimo_segundo_ble, ultimo_pausado_ble
-    if not ble_dispositivo or not ble_dispositivo.esta_conectado():
-        return
-        
-    ahora = time.ticks_ms()
-    remaining_s = obtener_segundos_restantes(ahora)
-        
-    if (forzar or 
-        estado_actual != ultimo_estado_ble or 
-        remaining_s != ultimo_segundo_ble or 
-        pausado != ultimo_pausado_ble):
-        
-        pausado_val = 1 if pausado else 0
-        # Formato optimizado (<20 bytes): S:<estado>,<pausado>,<segundos_restantes>,<ciclos_completados>\n
-        payload = "S:{},{},{},{}\n".format(estado_actual, pausado_val, remaining_s, ciclos_focus_consecutivos)
-        try:
-            ble_dispositivo.write(payload)
-            ultimo_estado_ble = estado_actual
-            ultimo_segundo_ble = remaining_s
-            ultimo_pausado_ble = pausado
-        except Exception as e:
-            print("[BLE TX ERROR] No se pudo enviar estado:", e)
 
 def obtener_dict_estado():
     """Construye un JSON/Diccionario descriptivo del estado actual para la API HTTP"""
@@ -284,21 +190,6 @@ def obtener_dict_estado():
 # SUB-FUNCIONES MODULARIZADAS DE LA MÁQUINA DE ESTADOS
 # ==============================================================================
 
-def _procesar_entradas_y_gestos(ahora, botón_pulsado, gesto, gesto_ble):
-    """Prioriza y procesa los comandos físicos y digitales"""
-    start_requested = botón_pulsado
-    if gesto_ble == "START" and estado_actual in (ESTADO_STANDBY, ESTADO_ALERTA_TITILANDO):
-        start_requested = True
-        
-    gesto_resuelto = gesto
-    if gesto_ble == "PAUSA":
-        gesto_resuelto = hardware.GESTO_PAUSA
-    elif gesto_ble == "RESET_FASE":
-        gesto_resuelto = hardware.GESTO_RESET_FASE
-    elif gesto_ble == "RESET_IDLE":
-        gesto_resuelto = hardware.GESTO_RESET_IDLE
-        
-    return gesto_resuelto, start_requested
 
 def _manejar_parpadeo_pausa(ahora):
     """Hace parpadear el LED en el color de la fase actual y con su brillo congelado"""
@@ -457,10 +348,7 @@ def _ejecutar_estado_alerta(ahora, start_requested):
 
 def _actualizar_display_siete_segmentos(ahora):
     """Determina la representación del tiempo o estado en la pantalla"""
-    if ble_anunciando and ble_dispositivo is not None and not ble_dispositivo.esta_conectado() and estado_actual == ESTADO_STANDBY:
-        # Si Bluetooth está activo y sin conectar en Standby, muestra "bLE" para avisar disponibilidad
-        hardware.display.mostrar_texto("bLE ")
-    elif estado_actual == ESTADO_STANDBY or estado_actual == ESTADO_ALERTA_TITILANDO:
+    if estado_actual == ESTADO_STANDBY or estado_actual == ESTADO_ALERTA_TITILANDO:
         hardware.display.mostrar_texto("----")
     else:
         ocultar = (estado_actual != ESTADO_FOCUS)
@@ -481,51 +369,18 @@ def ejecutar_pomodoro_step():
     
     ahora = time.ticks_ms()
     botón_pulsado = hardware.boton_presionado()
-    gesto = hardware.detectar_gesto_boton_control()
-    gesto_ble = procesar_comandos_ble()
-    
-    gesto_resuelto, start_requested = _procesar_entradas_y_gestos(ahora, botón_pulsado, gesto, gesto_ble)
+    gesto_resuelto = hardware.detectar_gesto_boton_control()
+    start_requested = botón_pulsado
     
     # Registrar actividad del usuario para prolongar el tiempo antes de entrar a hibernar
     if ((estado_actual != ESTADO_STANDBY and not pausado) or 
             botón_pulsado or 
-            (gesto != hardware.GESTO_NINGUNO) or 
-            (gesto_ble is not None)):
+            (gesto_resuelto != hardware.GESTO_NINGUNO)):
         registrar_actividad()
     
-    # GESTO MANTENER: Reset total al modo de espera (Standby) o conmutación BLE si ya estamos en Standby
+    # GESTO MANTENER: Reset total al modo de espera (Standby)
     if gesto_resuelto == hardware.GESTO_RESET_IDLE:
-        if estado_actual == ESTADO_STANDBY:
-            # Conmutar (Toggle) anuncios Bluetooth BLE (evitando ENOMEM ya que el objeto BLE se crea en el boot)
-            if not ble_anunciando:
-                # Encender anuncios Bluetooth (Pairing)
-                hardware.display.mostrar_texto("bLE ")
-                hardware.set_color_pwm(0, 0, config.DUTY_MAX) # Azul brillante
-                audio.play_resume() # Pitido de éxito
-                
-                iniciar_anuncios()
-                
-                # Esperar a que el usuario suelte el botón para no registrar más pulsaciones
-                while hardware.btn_control.value() == 0:
-                    time.sleep_ms(10)
-                hardware.reset_gestos()
-            else:
-                # Apagar anuncios Bluetooth
-                hardware.display.mostrar_texto("oFF ")
-                hardware.set_color_pwm(0, 0, 0)
-                audio.play_reset_idle() # Pitido de apagado
-                
-                detener_anuncios()
-                
-                # Apagar el LED interno
-                hardware.set_led_interno(False)
-                
-                # Esperar a que el usuario suelte el botón
-                while hardware.btn_control.value() == 0:
-                    time.sleep_ms(10)
-                hardware.reset_gestos()
-            return
-        else:
+        if estado_actual != ESTADO_STANDBY:
             audio.play_reset_idle()
             estado_actual = ESTADO_STANDBY
             pausado = False
@@ -533,7 +388,7 @@ def ejecutar_pomodoro_step():
             ciclos_focus_consecutivos = 0
             ultimo_titilo = ahora
             print("[POMODORO] Reset total. Regreso a STANDBY. Ciclos de descanso reiniciados.")
-            return
+        return
 
     # GESTOS EN TIEMPO DE FASE: Pausa y Reset local de fase
     if estado_actual != ESTADO_STANDBY and estado_actual != ESTADO_ALERTA_TITILANDO:
@@ -577,7 +432,6 @@ def ejecutar_pomodoro_step():
         _ejecutar_estado_alerta(ahora, start_requested)
         
     _actualizar_display_siete_segmentos(ahora)
-    enviar_estado_ble()
 
 def registrar_actividad():
     """Guarda una marca de tiempo con la última pulsación o comando recibido"""
@@ -611,22 +465,4 @@ def verificar_y_ejecutar_sleep():
             # Entrar en deepsleep (se reiniciará el programa al despertar)
             machine.deepsleep()
 
-def detener_anuncios():
-    """Detiene las transmisiones de anuncios BLE para liberar la radio RF."""
-    global ble_dispositivo, ble_anunciando
-    if ble_dispositivo:
-        try:
-            ble_dispositivo.detener_anuncios()
-            ble_anunciando = False
-        except Exception as e:
-            print("[BLE ERROR] No se pudieron detener anuncios:", e)
 
-def iniciar_anuncios():
-    """Reactiva las transmisiones de anuncios BLE."""
-    global ble_dispositivo, ble_anunciando
-    if ble_dispositivo:
-        try:
-            ble_dispositivo.iniciar_anuncios()
-            ble_anunciando = True
-        except Exception as e:
-            print("[BLE ERROR] No se pudieron iniciar anuncios:", e)

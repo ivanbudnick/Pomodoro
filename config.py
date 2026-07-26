@@ -11,7 +11,7 @@
 # --- CONFIGURACIÓN DE WIFI Y SERVIDOR FLASK ---
 WIFI_SSID = ""            # Nombre de la red WiFi (se carga de wifi.json)
 WIFI_PASSWORD = ""        # Contraseña de la red WiFi (se carga de wifi.json)
-FLASK_SERVER_URL = "http://192.168.0.125:5001/datos"  # Endpoint REST en la PC
+FLASK_SERVER_URL = "http://192.168.0.139:5001/datos"  # Endpoint REST en la PC
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC_SESIONES = "pomodoro/sesiones"
@@ -86,7 +86,7 @@ ciclos_para_descanso_largo = 4 # Cantidad de sesiones de enfoque previas al desc
 def guardar_a_disco():
     """
     Serializa y guarda la configuración de tiempos en config.json.
-    Esto permite que los cambios realizados vía HTTP o BLE persistan
+    Esto permite que los cambios realizados vía HTTP persistan
     a pesar de reinicios o cortes de energía.
     """
     try:
@@ -97,7 +97,8 @@ def guardar_a_disco():
                 "tiempo_descanso_corto": tiempo_descanso_corto_s,
                 "tiempo_descanso_largo": tiempo_descanso_largo_s,
                 "descanso_largo_activo": descanso_largo_activo,
-                "ciclos_para_descanso_largo": ciclos_para_descanso_largo
+                "ciclos_para_descanso_largo": ciclos_para_descanso_largo,
+                "flask_server_url": FLASK_SERVER_URL
             }, f)
         print("[CONFIG] Configuración guardada en config.json local.")
     except Exception as e:
@@ -109,7 +110,7 @@ def cargar_de_disco():
     Si el archivo no existe (por ejemplo, en el primer encendido), se mantiene
     con los valores predeterminados definidos arriba.
     """
-    global tiempo_focus_s, tiempo_descanso_corto_s, tiempo_descanso_largo_s, descanso_largo_activo, ciclos_para_descanso_largo
+    global tiempo_focus_s, tiempo_descanso_corto_s, tiempo_descanso_largo_s, descanso_largo_activo, ciclos_para_descanso_largo, FLASK_SERVER_URL
     try:
         import os
         import ujson as json
@@ -126,6 +127,7 @@ def cargar_de_disco():
             tiempo_descanso_largo_s = int(data.get("tiempo_descanso_largo", tiempo_descanso_largo_s))
             descanso_largo_activo = bool(data.get("descanso_largo_activo", descanso_largo_activo))
             ciclos_para_descanso_largo = int(data.get("ciclos_para_descanso_largo", ciclos_para_descanso_largo))
+            FLASK_SERVER_URL = data.get("flask_server_url", FLASK_SERVER_URL)
         print("[CONFIG SUCCESS] Configuración cargada desde config.json local.")
     except Exception as e:
         print("[CONFIG ERROR] Fallo al leer config.json local:", e)

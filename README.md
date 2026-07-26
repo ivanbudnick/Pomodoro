@@ -1,6 +1,6 @@
 # Pomodoro IoT Timer with Flask Web Dashboard
 
-Este proyecto implementa un temporizador Pomodoro avanzado basado en MicroPython para el chip ESP32, integrado con un panel de control web Flask con estética premium "glassmorphic" en la PC, soporte de red (WiFi, HTTP, MQTT, Portal Cautivo) y conectividad Bluetooth Low Energy (BLE).
+Este proyecto implementa un temporizador Pomodoro avanzado basado en MicroPython para el chip ESP32, integrado con un panel de control web Flask con estética premium "glassmorphic" en la PC y soporte de red (WiFi, HTTP, MQTT, Portal Cautivo).
 
 ---
 
@@ -37,8 +37,8 @@ Para ahorrar pines de entrada/salida de la ESP32, la pantalla de cátodo común 
 
 El sistema implementa una máquina de estados finitos robusta en el ESP32:
 
-1.  **Estado de Espera (STANDBY):** El LED RGB parpadea suavemente en color **Amarillo**. El display de 7 segmentos muestra `----` (o `bLE ` si los anuncios Bluetooth están activados y sin conexión). El dispositivo entra en modo Deep Sleep automáticamente tras 60 segundos de inactividad para ahorrar energía. Se puede despertar presionando el **Botón 1**.
-2.  **Fase de Enfoque (FOCUS):** Se activa al presionar el **Botón 1** o mediante la interfaz de red/BLE. El LED brilla en color **Rojo**, regulando su intensidad exponencialmente según transcurre la sesión. El display muestra el tiempo restante en formato `MM:SS` y la cantidad de ciclos completados.
+1.  **Estado de Espera (STANDBY):** El LED RGB parpadea suavemente en color **Amarillo**. El display de 7 segmentos muestra `----`. El dispositivo entra en modo Deep Sleep automáticamente tras 60 segundos de inactividad para ahorrar energía. Se puede despertar presionando el **Botón 1**.
+2.  **Fase de Enfoque (FOCUS):** Se activa al presionar el **Botón 1** o mediante la interfaz de red. El LED brilla en color **Rojo**, regulando su intensidad exponencialmente según transcurre la sesión. El display muestra el tiempo restante en formato `MM:SS` y la cantidad de ciclos completados.
 3.  **Fase de Descanso Corto (DESCANSO_CORTO):** Se inicia automáticamente al finalizar una fase Focus. El LED brilla en color **Azul** progresivo. El display muestra el tiempo restante de descanso (ocultando los ciclos de enfoque).
 4.  **Fase de Descanso Largo (DESCANSO_LARGO):** Ocurre de forma automática al completar un número configurable de ciclos de enfoque consecuentes (por defecto, cada 4 ciclos). El LED brilla en color **Verde** progresivo. El display muestra el tiempo restante.
 5.  **Fase de Alerta (ALERTA):** Al terminar cualquier fase de descanso, los LEDs destellan rápidamente en **Azul** (si terminó el descanso corto) o **Verde** (si terminó el descanso largo) acompañados de tonos acústicos del zumbador. Presionar el **Botón 1** inicia una nueva sesión Focus de inmediato.
@@ -52,7 +52,6 @@ El **Botón 2** permite controlar la sesión en tiempo de ejecución diferencian
 *   **Doble Clic:** Reinicia el temporizador de la fase activa actual desde el principio (0s transcurridos).
 *   **Presión Larga (mínimo 2 segundos):**
     *   *Durante una fase activa:* Resetea el ciclo completo y devuelve el sistema al estado **STANDBY**.
-    *   *Durante el estado STANDBY:* Conmuta (enciende o apaga) las transmisiones de anuncios de Bluetooth Low Energy (se mostrará brevemente `bLE ` o `oFF ` en la pantalla).
 
 ---
 
@@ -60,7 +59,6 @@ El **Botón 2** permite controlar la sesión en tiempo de ejecución diferencian
 
 *   **WiFi y Portal Cautivo:** Si no se encuentra un archivo `wifi.json` con credenciales, el ESP32 se inicia automáticamente en modo **Access Point / Portal Cautivo**, levantando un servidor web básico para configurar el SSID y la contraseña. Al conectarse exitosamente, guarda las credenciales y sincroniza los tiempos de Pomodoro con el backend.
 *   **Sincronización Web REST:** El ESP32 consume un endpoint REST del servidor local al arrancar para sincronizar los parámetros de la sesión y envía peticiones HTTP POST asíncronas en segundo plano cada vez que se finaliza un ciclo.
-*   **Bluetooth Low Energy (BLE):** Expone un perfil Nordic UART Service (NUS) para control asíncrono y notificaciones en tiempo real del estado actual del temporizador.
 *   **Soporte MQTT:** Envía reportes JSON a un broker MQTT (`pomodoro/sesiones`) en paralelo para telemetría.
 
 ---
@@ -70,18 +68,16 @@ El **Botón 2** permite controlar la sesión en tiempo de ejecución diferencian
 Todos los archivos del repositorio están activamente relacionados y desempeñan una función esencial:
 
 ### Firmware de la ESP32 (MicroPython)
-*   [main.py](file:///Users/ivanbudnick/Documents/Pomodoro/main.py): Secuencia de arranque del chip, inicializa el Bluetooth y el Servidor HTTP de forma óptima para evitar la fragmentación de memoria (ENOMEM) y ejecuta el bucle de eventos principal no bloqueante.
+*   [main.py](file:///Users/ivanbudnick/Documents/Pomodoro/main.py): Secuencia de arranque del chip, inicializa el Servidor HTTP y ejecuta el bucle de eventos principal no bloqueante.
 *   [config.py](file:///Users/ivanbudnick/Documents/Pomodoro/config.py): Almacena los parámetros generales de pines, tiempos y constantes del sistema. Incluye los métodos para serializar/deserializar configuraciones y credenciales locales (`config.json` y `wifi.json`).
 *   [pomodoro.py](file:///Users/ivanbudnick/Documents/Pomodoro/pomodoro.py): Controla la máquina de estados lógicos del Pomodoro, la transición entre fases, el apagado por inactividad (Deep Sleep) y los hilos para envío de reportes de red (HTTP/MQTT).
 *   [hardware.py](file:///Users/ivanbudnick/Documents/Pomodoro/hardware.py): Driver de hardware. Maneja el control de brillo exponencial de los LEDs RGB basado en la entrada del fotoresistor LDR, tonos PWM del buzzer, la detección de gestos por debounce de botones, y la multiplexación de la pantalla de 7 segmentos.
 *   [audio.py](file:///Users/ivanbudnick/Documents/Pomodoro/audio.py): Biblioteca de melodías y notificaciones sonoras integradas para retroalimentar las acciones del usuario (inicio, pausa, alerta, despertar de sleep, etc.).
-*   [ble_uart.py](file:///Users/ivanbudnick/Documents/Pomodoro/ble_uart.py): Abstracción del protocolo Bluetooth Low Energy que expone el servicio de transmisión UART (NUS) para la comunicación con el cliente remoto.
 *   [dashboard.html](file:///Users/ivanbudnick/Documents/Pomodoro/dashboard.html): Página web de control integrada en la ESP32 que se sirve directamente cuando se accede a su dirección IP desde el navegador.
 
 ### Servidor Dashboard y Herramientas PC (Python & Flask)
 *   [backend/app.py](file:///Users/ivanbudnick/Documents/Pomodoro/backend/app.py): Backend Flask en la PC que mantiene una base de datos SQLite de telemetría, ofrece paneles estadísticos y expone APIs para la configuración de tiempos.
-*   [backend/requirements.txt](file:///Users/ivanbudnick/Documents/Pomodoro/backend/requirements.txt): Declaración de dependencias del servidor backend (Flask, Bleak, Paho-MQTT).
-*   [backend/test_ble_client.py](file:///Users/ivanbudnick/Documents/Pomodoro/backend/test_ble_client.py): Aplicación interactiva de consola para la PC que permite controlar la ESP32 de forma remota y bidireccional usando Bluetooth Low Energy (BLE).
+*   [backend/requirements.txt](file:///Users/ivanbudnick/Documents/Pomodoro/backend/requirements.txt): Declaración de dependencias del servidor backend (Flask, Paho-MQTT).
 
 ---
 
@@ -102,10 +98,4 @@ npx localtunnel --port 5001
 ```
 Copia la URL `http` generada y configúrala en el parámetro `FLASK_SERVER_URL` de [config.py](file:///Users/ivanbudnick/Documents/Pomodoro/config.py) en tu ESP32/Wokwi.
 
-### 3. Conectar vía Bluetooth Low Energy
-Asegurate de activar Bluetooth en el ESP32 (Presión larga del Botón 2 estando en modo STANDBY, verás `bLE` en el display). Luego ejecuta el panel de consola en tu PC:
-```bash
-python backend/test_ble_client.py
-```
-y seguí las instrucciones en pantalla para enviar comandos remotamente.
 

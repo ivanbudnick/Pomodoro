@@ -690,18 +690,38 @@ def run_mqtt_listener():
     except Exception as e:
         print("[MQTT LISTENER ERROR] Fallo en cliente MQTT:", e, flush=True)
 
+def run_udp_discovery():
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # Reutilizar puerto para evitar errores de Bind en reinicios rápidos
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(('', 5002))
+        print("[UDP DISCOVERY] Servidor de descubrimiento escuchando en puerto 5002...", flush=True)
+        while True:
+            data, addr = sock.recvfrom(1024)
+            if data == b"POMODORO_DISCOVER":
+                # Respondemos con la firma y el puerto del servidor Flask
+                sock.sendto(b"POMODORO_RESPONSE:5001", addr)
+                print(f"[UDP DISCOVERY] Respondido descubrimiento a {addr}", flush=True)
+    except Exception as e:
+        print("[UDP DISCOVERY ERROR] Fallo en servidor UDP:", e, flush=True)
+    finally:
+        sock.close()
+
 if __name__ == '__main__':
     # Configuración de debug activa
     debug_mode = True
     
-    # Iniciar escuchador MQTT en segundo plano solo en el proceso activo (evita duplicación por el auto-reloader de Flask)
+    # Iniciar escuchador MQTT y servidor de descubrimiento UDP en segundo plano solo en el proceso activo (evita duplicación por el auto-reloader de Flask)
     if not debug_mode or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
         threading.Thread(target=run_mqtt_listener, daemon=True).start()
+        threading.Thread(target=run_udp_discovery, daemon=True).start()
 
     print("\n=======================================================")
     print(" SERVIDOR FLASK ANALYTICS PRO INICIADO EN PC")
     print(" URL Local Dashboard: http://localhost:5001")
-    print(" URL Endpoint ESP32: http://192.168.0.125:5001/datos")
+    print(" URL Endpoint ESP32: Dinámico (Autodescubrimiento activo en puerto 5002)")
     print(" Base de Datos SQLite: pomodoro.db")
     print("=======================================================\n")
     app.run(host='0.0.0.0', port=5001, debug=debug_mode)

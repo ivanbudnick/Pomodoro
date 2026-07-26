@@ -375,8 +375,76 @@ def connect_wifi():
         run_captive_portal()
         return "Offline"
 
+def descubrir_servidor_pc():
+    """
+    Intenta descubrir la dirección IP del servidor Flask en la PC
+    utilizando un broadcast UDP en la red local.
+    """
+    import socket
+    import gc
+    
+    print("[DISCOVERY] Buscando servidor en la red local...")
+    wlan = network.WLAN(network.STA_IF)
+    if not wlan.isconnected():
+        return False
+        
+    try:
+        # Crear socket UDP
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(2.0)
+        
+        # Intentar habilitar broadcast (SO_BROADCAST es 0x0020 en lwIP)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, 0x0020, 1)
+        except:
+            pass
+            
+        # Enviar mensaje de descubrimiento al puerto 5002
+        sock.sendto(b"POMODORO_DISCOVER", ("255.255.255.255", 5002))
+        
+        # Enviar también al broadcast de la subred para mayor compatibilidad
+        try:
+            ip_info = wlan.ifconfig()
+            ip = ip_info[0]
+            parts = ip.split('.')
+            if len(parts) == 4:
+                subnet_broadcast = "{}.{}.{}.255".format(parts[0], parts[1], parts[2])
+                sock.sendto(b"POMODORO_DISCOVER", (subnet_broadcast, 5002))
+        except:
+            pass
+            
+        # Esperar respuesta
+        data, addr = sock.recvfrom(1024)
+        msg = data.decode('utf-8').split(':')
+        if msg[0] == "POMODORO_RESPONSE":
+            pc_ip = addr[0]
+            port = msg[1] if len(msg) > 1 else "5001"
+            
+            old_url = config.FLASK_SERVER_URL
+            config.FLASK_SERVER_URL = "http://{}:{}/datos".format(pc_ip, port)
+            
+            print("[DISCOVERY SUCCESS] ¡Servidor encontrado en {}!".format(pc_ip))
+            if old_url != config.FLASK_SERVER_URL:
+                print("[DISCOVERY] URL del servidor actualizada a: {}".format(config.FLASK_SERVER_URL))
+                config.guardar_a_disco()
+            sock.close()
+            return True
+    except Exception as e:
+        print("[DISCOVERY INFO] No se pudo encontrar el servidor automáticamente ({}). Usando fallback.".format(e))
+    finally:
+        try:
+            sock.close()
+        except:
+            pass
+        gc.collect()
+        
+    return False
+
 def sincronizar_config_pc():
     """Descarga e impone la configuración horaria de la Base de Datos centralizada (Flask) en la PC"""
+    # Intentar descubrir el servidor automáticamente antes de sincronizar
+    descubrir_servidor_pc()
+    
     if urequests is None:
         print("[SYNC WARNING] Modulo urequests no disponible.")
         return

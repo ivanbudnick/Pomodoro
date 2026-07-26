@@ -7,20 +7,9 @@ import audio
 # ==============================================================================
 # SECUENCIA DE ARRANQUE Y OPTIMIZACIÓN DE MEMORIA RAM
 # ==============================================================================
-# El orden de inicialización en MicroPython es extremadamente crítico en chips
-# con recursos limitados. El stack NimBLE (Bluetooth) requiere de un bloque de
-# memoria heap contiguo y libre para arrancar. Si se importan librerías grandes
-# (como sockets de red o el parser JSON de server.py) antes de inicializar BLE,
-# la memoria se fragmentará, causando un error fatal 'ENOMEM' (Out of Memory).
-#
-# Para evitar esto, liberamos la memoria no utilizada (gc.collect()) e iniciamos
-# la radio Bluetooth como primerísima acción en el arranque del chip.
+# Liberamos la memoria no utilizada (gc.collect()) como buena práctica en el
+# arranque del chip para tener la mayor cantidad de heap disponible.
 import gc
-gc.collect()
-# Inicializar BLE al inicio para reservar memoria heap contigua y evitar ENOMEM.
-# Inmediatamente detenemos los anuncios para evitar interferencias RF con la conexión WiFi.
-pomodoro.inicializar_ble()
-pomodoro.detener_anuncios()
 gc.collect()
 
 # ==============================================================================
@@ -50,26 +39,20 @@ else:
 # ==============================================================================
 # INICIALIZACIÓN DE SERVICIOS DE RED (HTTP & SYNC)
 # ==============================================================================
-# Una vez garantizada la reserva de memoria para BLE, cargamos el módulo de servidor
-# HTTP. Conectamos a la red Wi-Fi utilizando las credenciales cargadas.
-# Si el dispositivo está en línea, sincronizamos la configuración de los tiempos
-# (Focus, Descansos, etc.) desde la base de datos centralizada del servidor de la PC.
+# Cargamos el módulo de servidor HTTP. Conectamos a la red Wi-Fi utilizando
+# las credenciales cargadas. Si el dispositivo está en línea, sincronizamos la
+# configuración de los tiempos (Focus, Descansos, etc.) desde la base de datos
+# centralizada del servidor de la PC.
 import server
-
-# Detener los anuncios BLE temporalmente antes de la conexión Wi-Fi
-# para evitar colisiones de radio/RF en el Core 0 que provocan un pánico abort().
-pomodoro.detener_anuncios()
 
 ip = server.connect_wifi()
 if ip != "Offline":
     server.sincronizar_config_pc()
 
-# BLE permanecerá apagado (silencioso) hasta que el usuario lo active manualmente con el botón.
-
 # Iniciar el socket del servidor HTTP para recibir y responder solicitudes del Dashboard
 server.iniciar_servidor_http()
 
-print("--> Sistema Pomodoro ESP32 Listo. Esperando interacción por botón o web o BLE.\n")
+print("--> Sistema Pomodoro ESP32 Listo. Esperando interacción por botón o web.\n")
 
 # ==============================================================================
 # BUCLE PRINCIPAL NO BLOQUEANTE (STATE POLLING)
