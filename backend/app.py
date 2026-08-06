@@ -10,7 +10,7 @@ app = Flask(__name__)
 DB_PATH = os.path.join(os.path.dirname(__file__), 'pomodoro.db')
 
 def init_db():
-    """Inicializa la base de datos SQLite con soporte para tipos de sesión Pomodoro Pro"""
+    """Inicializa la base de datos SQLite con soporte para tipos de sesión Pomodoro Pro, métricas y avance forzado"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
@@ -22,7 +22,9 @@ def init_db():
             dispositivo TEXT,
             tipo_sesion TEXT DEFAULT 'focus',
             ciclo_num INTEGER,
-            duracion_s INTEGER
+            duracion_s INTEGER,
+            configuracion_id INTEGER,
+            forzado INTEGER DEFAULT 0
         )
     ''')
     
@@ -39,6 +41,43 @@ def init_db():
         )
     ''')
     
+    # Crear tabla de pausas
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pausas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            fase TEXT,
+            tiempo_transcurrido_s INTEGER,
+            porcentaje_transcurrido REAL,
+            duracion_pausa_s INTEGER,
+            configuracion_id INTEGER
+        )
+    ''')
+
+    # Crear tabla de tiempos de reacción a las alertas
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tiempos_reaccion (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            tipo_alerta TEXT,
+            duracion_alerta_s REAL,
+            configuracion_id INTEGER
+        )
+    ''')
+
+    # Crear tabla de eventos de ciclos (inicio, fin, cancelación, forzado)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS eventos_ciclos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            fase TEXT,
+            evento TEXT,
+            tiempo_activo_s INTEGER,
+            configuracion_id INTEGER,
+            forzado INTEGER DEFAULT 0
+        )
+    ''')
+    
     # Migrar tabla legacy si existía
     cursor.execute("PRAGMA table_info(ciclos_rojos)")
     legacy_exists = cursor.fetchall()
@@ -51,6 +90,42 @@ def init_db():
             cursor.execute("DROP TABLE ciclos_rojos")
         except:
             pass
+
+    # Agregar columna configuracion_id a sesiones_pomodoro si no existe (migración)
+    cursor.execute("PRAGMA table_info(sesiones_pomodoro)")
+    cols = [row[1] for row in cursor.fetchall()]
+    if "configuracion_id" not in cols:
+        try:
+            cursor.execute("ALTER TABLE sesiones_pomodoro ADD COLUMN configuracion_id INTEGER")
+        except Exception as e:
+            print("[BD MIGRATION ERROR] No se pudo agregar configuracion_id a sesiones_pomodoro:", e)
+
+    # Agregar columna forzado a sesiones_pomodoro si no existe (migración)
+    if "forzado" not in cols:
+        try:
+            cursor.execute("ALTER TABLE sesiones_pomodoro ADD COLUMN forzado INTEGER DEFAULT 0")
+        except Exception as e:
+            print("[BD MIGRATION ERROR] No se pudo agregar forzado a sesiones_pomodoro:", e)
+
+    # Agregar columna forzado a eventos_ciclos si no existe (migración)
+    cursor.execute("PRAGMA table_info(eventos_ciclos)")
+    cols_ciclos = [row[1] for row in cursor.fetchall()]
+    if "forzado" not in cols_ciclos:
+        try:
+            cursor.execute("ALTER TABLE eventos_ciclos ADD COLUMN forzado INTEGER DEFAULT 0")
+        except Exception as e:
+            print("[BD MIGRATION ERROR] No se pudo agregar forzado a eventos_ciclos:", e)
+            
+    # Insertar configuración por defecto si la tabla está vacía
+    cursor.execute("SELECT COUNT(*) FROM configuraciones")
+    if cursor.fetchone()[0] == 0:
+        try:
+            cursor.execute('''
+                INSERT INTO configuraciones (tiempo_focus, tiempo_descanso_corto, tiempo_descanso_largo, descanso_largo_activo, ciclos_para_descanso_largo)
+                VALUES (1500, 300, 900, 1, 4)
+            ''')
+        except Exception as e:
+            print("[BD INIT ERROR] No se pudo insertar configuración por defecto:", e)
             
     conn.commit()
     conn.close()
@@ -364,7 +439,12 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                             {% endif %}
                         </td>
                         <td>Ciclo #{{ s[4] }}</td>
-                        <td>{{ s[5] }} seg</td>
+                        <td>
+                            {{ s[5] }} seg
+                            {% if s[6] == 1 %}
+                                <span style="font-size: 0.75rem; color: #fb923c; font-weight: 500; margin-left: 4px;">(Forzado)</span>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% else %}
                     <tr>
@@ -375,6 +455,159 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     {% endfor %}
                 </tbody>
             </table>
+        </div>
+
+        <!-- TARJETAS DE MÉTRICAS AVANZADAS -->
+        <h2 style="font-size: 1.25rem; margin-top: 40px; margin-bottom: 20px; font-weight: 600; color: #ffffff;">Métricas Avanzadas (Analítica)</h2>
+        <div class="stats-grid">
+            <div class="stat-card red">
+                <div class="stat-value">{{ avg_reaccion_focus }}s</div>
+                <div class="stat-label">Reac. Post-Focus Promedio</div>
+            </div>
+            <div class="stat-card blue">
+                <div class="stat-value">{{ avg_reaccion_corto }}s</div>
+                <div class="stat-label">Reac. Post-D. Corto Promedio</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-value">{{ avg_reaccion_largo }}s</div>
+                <div class="stat-label">Reac. Post-D. Largo Promedio</div>
+            </div>
+            <div class="stat-card gold">
+                <div class="stat-value">{{ total_pausas }} <span style="font-size: 0.9rem; color: var(--muted); font-weight: 400;">({{ avg_duracion_pausa }}s avg)</span></div>
+                <div class="stat-label">Pausas registradas</div>
+            </div>
+            <div class="stat-card red" style="background: rgba(244, 63, 94, 0.015); border-color: rgba(244, 63, 94, 0.15);">
+                <div class="stat-value">{{ total_forzados }}</div>
+                <div class="stat-label">Avances Forzados</div>
+            </div>
+        </div>
+
+        <!-- DETALLE DE TELEMETRÍA -->
+        <div class="charts-grid" style="margin-top: 40px; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));">
+            <!-- TABLA DE PAUSAS -->
+            <div class="table-card">
+                <h3>Detalle de Pausas Recientes</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Fase</th>
+                            <th>Avance al pausar</th>
+                            <th>Pausa</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in ultimas_pausas %}
+                        <tr>
+                            <td>{{ p[1].split(' ')[1] if ' ' in p[1] else p[1] }}</td>
+                            <td>
+                                {% if p[2] == 'FOCUS' %}
+                                    <span class="badge focus">Enfoque</span>
+                                {% elif p[2] == 'DESCANSO_CORTO' %}
+                                    <span class="badge descanso_corto">D. Corto</span>
+                                {% else %}
+                                    <span class="badge descanso_largo">D. Largo</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ p[3] }}s ({{ "%.1f"|format(p[4]) }}%)</td>
+                            <td style="color: #f43f5e; font-weight: 600;">{{ p[5] }}s</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" style="text-align: center; color: var(--muted); padding: 16px;">
+                                Sin pausas registradas.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- TABLA DE TIEMPOS DE REACCIÓN -->
+            <div class="table-card">
+                <h3>Detalle de Reacciones a Alertas</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Tipo de Alerta</th>
+                            <th>Reacción</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in ultimas_reacciones %}
+                        <tr>
+                            <td>{{ r[1].split(' ')[1] if ' ' in r[1] else r[1] }}</td>
+                            <td>
+                                {% if r[2] == 'POST_FOCUS' %}
+                                    <span class="badge focus">Post-Focus</span>
+                                {% elif r[2] == 'POST_DESCANSO_CORTO' %}
+                                    <span class="badge descanso_corto">Post-D. Corto</span>
+                                {% else %}
+                                    <span class="badge descanso_largo">Post-D. Largo</span>
+                                {% endif %}
+                            </td>
+                            <td style="color: #fbbf24; font-weight: 600;">{{ "%.2f"|format(r[3]) }}s</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="3" style="text-align: center; color: var(--muted); padding: 16px;">
+                                Sin tiempos de reacción.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- TABLA DE EVENTOS DE CICLO -->
+            <div class="table-card" style="grid-column: 1 / -1;">
+                <h3>Bitácora de Ciclos Recientes</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Fase</th>
+                            <th>Evento</th>
+                            <th>Duración Activa</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for c in ultimos_ciclos %}
+                        <tr>
+                            <td>{{ c[1] }}</td>
+                            <td>
+                                {% if c[2] == 'FOCUS' %}
+                                    <span class="badge focus">Enfoque</span>
+                                {% elif c[2] == 'DESCANSO_CORTO' %}
+                                    <span class="badge descanso_corto">D. Corto</span>
+                                {% else %}
+                                    <span class="badge descanso_largo">D. Largo</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if c[3] == 'INICIADO' %}
+                                    <span style="color: #60a5fa; font-weight: 500;">Iniciado</span>
+                                {% elif c[3] == 'COMPLETADO' %}
+                                    <span style="color: #34d399; font-weight: 600;">Completado</span>
+                                {% elif c[3] == 'FORZADO' %}
+                                    <span style="color: #fb923c; font-weight: 600;">Avance Forzado</span>
+                                {% else %}
+                                    <span style="color: #f87171; font-weight: 500;">Cancelado (Reset)</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ c[4] }}s</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" style="text-align: center; color: var(--muted); padding: 16px;">
+                                Sin eventos de ciclos registrados.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -507,7 +740,8 @@ def index():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    cursor.execute('SELECT id, timestamp, dispositivo, tipo_sesion, ciclo_num, duracion_s FROM sesiones_pomodoro ORDER BY id DESC LIMIT 50')
+    # 1. Sesiones de pomodoro (incluyendo flag de avance forzado)
+    cursor.execute('SELECT id, timestamp, dispositivo, tipo_sesion, ciclo_num, duracion_s, forzado FROM sesiones_pomodoro ORDER BY id DESC LIMIT 50')
     sesiones = cursor.fetchall()
     
     cursor.execute("SELECT COUNT(*) FROM sesiones_pomodoro WHERE tipo_sesion = 'focus'")
@@ -518,6 +752,33 @@ def index():
     total_minutos_focus = round(total_segundos_focus / 60, 1)
 
     racha_actual, racha_maxima = calcular_rachas(conn)
+
+    # 2. Métricas de Pausas
+    cursor.execute("SELECT COUNT(*), COALESCE(AVG(duracion_pausa_s), 0) FROM pausas")
+    row_pausas = cursor.fetchone()
+    total_pausas = row_pausas[0] if row_pausas else 0
+    avg_duracion_pausa = round(row_pausas[1], 1) if row_pausas and row_pausas[1] else 0.0
+
+    cursor.execute("SELECT id, timestamp, fase, tiempo_transcurrido_s, porcentaje_transcurrido, duracion_pausa_s FROM pausas ORDER BY id DESC LIMIT 10")
+    ultimas_pausas = cursor.fetchall()
+
+    # 3. Métricas de Reacción
+    cursor.execute("SELECT tipo_alerta, COALESCE(AVG(duracion_alerta_s), 0) FROM tiempos_reaccion GROUP BY tipo_alerta")
+    reacciones_avg = dict(cursor.fetchall())
+    avg_reaccion_focus = round(reacciones_avg.get('POST_FOCUS', 0.0), 2)
+    avg_reaccion_corto = round(reacciones_avg.get('POST_DESCANSO_CORTO', 0.0), 2)
+    avg_reaccion_largo = round(reacciones_avg.get('POST_DESCANSO_LARGO', 0.0), 2)
+
+    cursor.execute("SELECT id, timestamp, tipo_alerta, duracion_alerta_s FROM tiempos_reaccion ORDER BY id DESC LIMIT 10")
+    ultimas_reacciones = cursor.fetchall()
+
+    # 4. Métricas de Avances Forzados / Ciclos
+    cursor.execute("SELECT COUNT(*) FROM sesiones_pomodoro WHERE forzado = 1")
+    total_forzados = cursor.fetchone()[0]
+
+    cursor.execute("SELECT id, timestamp, fase, evento, tiempo_activo_s, forzado FROM eventos_ciclos ORDER BY id DESC LIMIT 15")
+    ultimos_ciclos = cursor.fetchall()
+
     conn.close()
     
     return render_template_string(
@@ -526,7 +787,16 @@ def index():
         total_focus=total_focus,
         total_minutos_focus=total_minutos_focus,
         racha_actual=racha_actual,
-        racha_maxima=racha_maxima
+        racha_maxima=racha_maxima,
+        total_pausas=total_pausas,
+        avg_duracion_pausa=avg_duracion_pausa,
+        ultimas_pausas=ultimas_pausas,
+        avg_reaccion_focus=avg_reaccion_focus,
+        avg_reaccion_corto=avg_reaccion_corto,
+        avg_reaccion_largo=avg_reaccion_largo,
+        ultimas_reacciones=ultimas_reacciones,
+        total_forzados=total_forzados,
+        ultimos_ciclos=ultimos_ciclos
     )
 
 @app.route('/datos', methods=['POST'])
@@ -538,6 +808,7 @@ def recibir_datos():
         tipo_sesion = data.get('tipo_sesion', 'focus')
         ciclo_num = data.get('ciclo_num', 1)
         duracion_s = data.get('duracion_s', 0)
+        forzado = int(data.get('forzado', 0))
         
         # Mapeo de compatibilidad con payload previo
         if data.get('evento') == 'ciclo_rojo_completado':
@@ -545,17 +816,111 @@ def recibir_datos():
             
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+        
+        # Obtener el ID de la configuración activa
+        cursor.execute("SELECT id FROM configuraciones ORDER BY id DESC LIMIT 1")
+        config_row = cursor.fetchone()
+        config_id = config_row[0] if config_row else None
+        
         cursor.execute('''
-            INSERT INTO sesiones_pomodoro (dispositivo, tipo_sesion, ciclo_num, duracion_s)
-            VALUES (?, ?, ?, ?)
-        ''', (dispositivo, tipo_sesion, ciclo_num, duracion_s))
+            INSERT INTO sesiones_pomodoro (dispositivo, tipo_sesion, ciclo_num, duracion_s, configuracion_id, forzado)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (dispositivo, tipo_sesion, ciclo_num, duracion_s, config_id, forzado))
         conn.commit()
         conn.close()
         
-        print(f"[BD FLASK] Sesión '{tipo_sesion}' guardada: Ciclo #{ciclo_num} ({duracion_s}s)")
+        print(f"[BD FLASK] Sesión '{tipo_sesion}' guardada: Ciclo #{ciclo_num} ({duracion_s}s), Config ID: {config_id}, Forzado: {forzado}")
         return jsonify({"status": "success", "message": "Sesión registrada en la BD"}), 200
     except Exception as e:
         print("[BD FLASK ERROR] Error procesando POST:", e)
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+@app.route('/api/registro_pausa', methods=['POST'])
+def registro_pausa():
+    try:
+        data = request.get_json(force=True)
+        fase = data.get('fase', 'DESCONOCIDO')
+        tiempo_transcurrido_s = int(data.get('tiempo_transcurrido_s', 0))
+        porcentaje_transcurrido = float(data.get('porcentaje_transcurrido', 0.0))
+        duracion_pausa_s = int(data.get('duracion_pausa_s', 0))
+        
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Obtener el ID de la configuración activa
+        cursor.execute("SELECT id FROM configuraciones ORDER BY id DESC LIMIT 1")
+        config_row = cursor.fetchone()
+        config_id = config_row[0] if config_row else None
+        
+        cursor.execute('''
+            INSERT INTO pausas (fase, tiempo_transcurrido_s, porcentaje_transcurrido, duracion_pausa_s, configuracion_id)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (fase, tiempo_transcurrido_s, porcentaje_transcurrido, duracion_pausa_s, config_id))
+        conn.commit()
+        conn.close()
+        
+        print(f"[BD FLASK] Pausa registrada: Fase {fase}, Transcurrido {tiempo_transcurrido_s}s ({porcentaje_transcurrido}%), Duración {duracion_pausa_s}s, Config ID: {config_id}")
+        return jsonify({"status": "success", "message": "Pausa registrada"}), 200
+    except Exception as e:
+        print("[BD FLASK ERROR] Error en registro_pausa:", e)
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+@app.route('/api/registro_reaccion', methods=['POST'])
+def registro_reaccion():
+    try:
+        data = request.get_json(force=True)
+        tipo_alerta = data.get('tipo_alerta', 'DESCONOCIDO')
+        duracion_alerta_s = float(data.get('duracion_alerta_s', 0.0))
+        
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Obtener el ID de la configuración activa
+        cursor.execute("SELECT id FROM configuraciones ORDER BY id DESC LIMIT 1")
+        config_row = cursor.fetchone()
+        config_id = config_row[0] if config_row else None
+        
+        cursor.execute('''
+            INSERT INTO tiempos_reaccion (tipo_alerta, duracion_alerta_s, configuracion_id)
+            VALUES (?, ?, ?)
+        ''', (tipo_alerta, duracion_alerta_s, config_id))
+        conn.commit()
+        conn.close()
+        
+        print(f"[BD FLASK] Reacción registrada: Alerta {tipo_alerta}, Reacción {duracion_alerta_s}s, Config ID: {config_id}")
+        return jsonify({"status": "success", "message": "Reacción registrada"}), 200
+    except Exception as e:
+        print("[BD FLASK ERROR] Error en registro_reaccion:", e)
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+@app.route('/api/registro_ciclo', methods=['POST'])
+def registro_ciclo():
+    try:
+        data = request.get_json(force=True)
+        fase = data.get('fase', 'DESCONOCIDO')
+        evento = data.get('evento', 'DESCONOCIDO')
+        tiempo_activo_s = int(data.get('tiempo_activo_s', 0))
+        forzado = int(data.get('forzado', 0))
+        
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Obtener el ID de la configuración activa
+        cursor.execute("SELECT id FROM configuraciones ORDER BY id DESC LIMIT 1")
+        config_row = cursor.fetchone()
+        config_id = config_row[0] if config_row else None
+        
+        cursor.execute('''
+            INSERT INTO eventos_ciclos (fase, evento, tiempo_activo_s, configuracion_id, forzado)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (fase, evento, tiempo_activo_s, config_id, forzado))
+        conn.commit()
+        conn.close()
+        
+        print(f"[BD FLASK] Evento de ciclo registrado: Fase {fase}, Evento {evento}, Tiempo activo {tiempo_activo_s}s, Config ID: {config_id}, Forzado: {forzado}")
+        return jsonify({"status": "success", "message": "Evento de ciclo registrado"}), 200
+    except Exception as e:
+        print("[BD FLASK ERROR] Error en registro_ciclo:", e)
         return jsonify({"status": "error", "message": str(e)}), 400
 
 @app.route('/api/stats', methods=['GET'])
@@ -592,7 +957,7 @@ def api_stats():
 
 @app.route('/api/save_config', methods=['POST'])
 def save_config():
-    """Endpoint para guardar la última configuración configurada en la base de datos"""
+    """Endpoint para guardar la configuración en la base de datos (evita duplicados idénticos)"""
     try:
         data = request.get_json(force=True)
         tiempo_focus = int(data.get('tiempo_focus', 1500))
@@ -605,15 +970,34 @@ def save_config():
         
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO configuraciones (tiempo_focus, tiempo_descanso_corto, tiempo_descanso_largo, descanso_largo_activo, ciclos_para_descanso_largo)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (tiempo_focus, tiempo_descanso_corto, tiempo_descanso_largo, descanso_largo_activo, ciclos_para_descanso_largo))
-        conn.commit()
-        conn.close()
         
-        print("[BD FLASK] Nueva configuración de tiempos guardada en base de datos.")
-        return jsonify({"status": "success", "message": "Configuración registrada en la BD"}), 200
+        # Consultar la configuración más reciente para ver si cambió
+        cursor.execute('''
+            SELECT tiempo_focus, tiempo_descanso_corto, tiempo_descanso_largo, descanso_largo_activo, ciclos_para_descanso_largo 
+            FROM configuraciones ORDER BY id DESC LIMIT 1
+        ''')
+        row = cursor.fetchone()
+        
+        if (not row or 
+            row[0] != tiempo_focus or 
+            row[1] != tiempo_descanso_corto or 
+            row[2] != tiempo_descanso_largo or 
+            row[3] != descanso_largo_activo or 
+            row[4] != ciclos_para_descanso_largo):
+            
+            cursor.execute('''
+                INSERT INTO configuraciones (tiempo_focus, tiempo_descanso_corto, tiempo_descanso_largo, descanso_largo_activo, ciclos_para_descanso_largo)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (tiempo_focus, tiempo_descanso_corto, tiempo_descanso_largo, descanso_largo_activo, ciclos_para_descanso_largo))
+            conn.commit()
+            print("[BD FLASK] Nueva configuración de tiempos guardada en base de datos.")
+            message = "Configuración registrada en la BD (Nueva fila)"
+        else:
+            print("[BD FLASK] La configuración es idéntica a la anterior. No se crea una nueva fila.")
+            message = "Configuración idéntica, no se requiere inserción"
+            
+        conn.close()
+        return jsonify({"status": "success", "message": message}), 200
     except Exception as e:
         print("[BD FLASK ERROR] Fallo al guardar configuración:", e)
         return jsonify({"status": "error", "message": str(e)}), 400

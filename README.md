@@ -21,37 +21,27 @@ El firmware está optimizado para el módulo **ESP-32S (ESP-WROOM-32)**. A conti
 > [!NOTE]
 > Se eligió el `GPIO 25` para el botón principal de inicio/despertar para evitar interferencias de ruido analógico/RF con el cristal oscilador de 32.768 kHz que típicamente se suelda en los pines `GPIO 32` y `33` en las placas de desarrollo ESP-32S, manteniendo al mismo tiempo la capacidad de despertar del modo de ultra bajo consumo Deep Sleep.
 
-### Display de 7 Segmentos y 4 Dígitos (Multiplexado vía 74HC595)
-Para ahorrar pines de entrada/salida de la ESP32, la pantalla de cátodo común se conecta usando el registro de desplazamiento 74HC595:
-*   **Datos Seriales (DS / Serial Data Input):** `GPIO 4`
-*   **Reloj de Desplazamiento (SH_CP / SRCLK):** `GPIO 16`
-*   **Reloj de Latch / Almacenamiento (ST_CP / RCLK):** `GPIO 17`
-*   **Selector Dígito 1:** `GPIO 18`
-*   **Selector Dígito 2:** `GPIO 19`
-*   **Selector Dígito 3:** `GPIO 21`
-*   **Selector Dígito 4:** `GPIO 23`
-
----
 
 ## Operación de los Estados del Sistema
 
 El sistema implementa una máquina de estados finitos robusta en el ESP32:
 
-1.  **Estado de Espera (STANDBY):** El LED RGB parpadea suavemente en color **Amarillo**. El display de 7 segmentos muestra `----`. El dispositivo entra en modo Deep Sleep automáticamente tras 60 segundos de inactividad para ahorrar energía. Se puede despertar presionando el **Botón 1**.
-2.  **Fase de Enfoque (FOCUS):** Se activa al presionar el **Botón 1** o mediante la interfaz de red. El LED brilla en color **Rojo**, regulando su intensidad exponencialmente según transcurre la sesión. El display muestra el tiempo restante en formato `MM:SS` y la cantidad de ciclos completados.
-3.  **Fase de Descanso Corto (DESCANSO_CORTO):** Se inicia automáticamente al finalizar una fase Focus. El LED brilla en color **Azul** progresivo. El display muestra el tiempo restante de descanso (ocultando los ciclos de enfoque).
-4.  **Fase de Descanso Largo (DESCANSO_LARGO):** Ocurre de forma automática al completar un número configurable de ciclos de enfoque consecuentes (por defecto, cada 4 ciclos). El LED brilla en color **Verde** progresivo. El display muestra el tiempo restante.
-5.  **Fase de Alerta (ALERTA):** Al terminar cualquier fase de descanso, los LEDs destellan rápidamente en **Azul** (si terminó el descanso corto) o **Verde** (si terminó el descanso largo) acompañados de tonos acústicos del zumbador. Presionar el **Botón 1** inicia una nueva sesión Focus de inmediato.
+1.  **Estado de Espera (STANDBY):** El LED RGB parpadea suavemente en color **Amarillo**. El dispositivo entra en modo Deep Sleep automáticamente tras 60 segundos de inactividad para ahorrar energía. Se puede despertar presionando el **Botón Único** (conectado a `GPIO 25`).
+2.  **Fase de Enfoque (FOCUS):** Se activa al presionar el **Botón Único** (clic simple en Standby) o mediante la interfaz de red. El LED brilla en color **Rojo**, regulando su intensidad exponencialmente según transcurre la sesión.
+3.  **Fase de Descanso Corto (DESCANSO_CORTO):** Se inicia tras pulsar el botón en el estado de alerta post-focus. El LED brilla en color **Azul** progresivo.
+4.  **Fase de Descanso Largo (DESCANSO_LARGO):** Se inicia tras pulsar el botón en el estado de alerta post-focus tras completar un número configurable de ciclos de enfoque (por defecto, cada 4 ciclos). El LED brilla en color **Verde** progresivo.
+5.  **Fase de Alerta (ALERTA):** Al terminar cualquier fase (Focus, descanso corto o largo), los LEDs destellan rápidamente en **Rojo** (post-focus), **Azul** (post-descanso corto) o **Verde** (post-descanso largo) acompañados de tonos acústicos del zumbador. Presionar el **Botón Único** confirma el cambio de estado e inicia el siguiente período.
 
 ---
 
-## Gestos del Botón de Control (Botón 2)
+## Gestos y Control (Botón Único en GPIO 25)
 
-El **Botón 2** permite controlar la sesión en tiempo de ejecución diferenciando tres gestos mediante temporización por software no bloqueante:
-*   **Clic Simple:** Alterna entre Pausa y Reanudación del temporizador actual. Durante la pausa, el LED parpadeará suavemente en el color de la fase actual congelando su nivel de brillo actual.
+El **Botón Único** permite controlar la sesión en tiempo de ejecución diferenciando cuatro gestos mediante temporización por software no bloqueante:
+*   **1 Clic (en Standby o Alerta):** Inicia la sesión de Focus (en Standby) o confirma y avanza a la siguiente fase (en Alertas).
+*   **1 Clic (en Fases Activas):** Alterna entre Pausa y Reanudación del temporizador actual. Durante la pausa, el LED parpadeará suavemente en el color de la fase actual.
 *   **Doble Clic:** Reinicia el temporizador de la fase activa actual desde el principio (0s transcurridos).
-*   **Presión Larga (mínimo 2 segundos):**
-    *   *Durante una fase activa:* Resetea el ciclo completo y devuelve el sistema al estado **STANDBY**.
+*   **Triple Clic:** Fuerza el avance a la siguiente fase directamente (de Focus a Descanso, o de Descanso a Focus) sin pasar por el estado de alerta parpadeante.
+*   **Presión Larga (mínimo 2 segundos):** Resetea el ciclo completo y devuelve el sistema al estado **STANDBY**.
 
 ---
 
@@ -71,7 +61,7 @@ Todos los archivos del repositorio están activamente relacionados y desempeñan
 *   [main.py](file:///Users/ivanbudnick/Documents/Pomodoro/main.py): Secuencia de arranque del chip, inicializa el Servidor HTTP y ejecuta el bucle de eventos principal no bloqueante.
 *   [config.py](file:///Users/ivanbudnick/Documents/Pomodoro/config.py): Almacena los parámetros generales de pines, tiempos y constantes del sistema. Incluye los métodos para serializar/deserializar configuraciones y credenciales locales (`config.json` y `wifi.json`).
 *   [pomodoro.py](file:///Users/ivanbudnick/Documents/Pomodoro/pomodoro.py): Controla la máquina de estados lógicos del Pomodoro, la transición entre fases, el apagado por inactividad (Deep Sleep) y los hilos para envío de reportes de red (HTTP/MQTT).
-*   [hardware.py](file:///Users/ivanbudnick/Documents/Pomodoro/hardware.py): Driver de hardware. Maneja el control de brillo exponencial de los LEDs RGB basado en la entrada del fotoresistor LDR, tonos PWM del buzzer, la detección de gestos por debounce de botones, y la multiplexación de la pantalla de 7 segmentos.
+*   [hardware.py](file:///Users/ivanbudnick/Documents/Pomodoro/hardware.py): Driver de hardware. Maneja el control de brillo exponencial de los LEDs RGB basado en la entrada del fotoresistor LDR, tonos PWM del buzzer, y la detección de gestos por debounce de botones.
 *   [audio.py](file:///Users/ivanbudnick/Documents/Pomodoro/audio.py): Biblioteca de melodías y notificaciones sonoras integradas para retroalimentar las acciones del usuario (inicio, pausa, alerta, despertar de sleep, etc.).
 *   [dashboard.html](file:///Users/ivanbudnick/Documents/Pomodoro/dashboard.html): Página web de control integrada en la ESP32 que se sirve directamente cuando se accede a su dirección IP desde el navegador.
 

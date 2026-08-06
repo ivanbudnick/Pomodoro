@@ -17,26 +17,14 @@ MQTT_PORT = 1883
 MQTT_TOPIC_SESIONES = "pomodoro/sesiones"
 
 # --- CONFIGURACIÓN DE PINES (ESP32) ---
-# Se utiliza el GPIO 25 para el botón principal de inicio para evitar los ruidos
+# Se utiliza el GPIO 25 para el botón único para evitar los ruidos
 # analógicos causados por el oscilador del cristal de 32kHz (presente en GPIO 32/33 en ESP-32S).
-PIN_BTN = 25                   # Botón 1: Iniciar Enfoque / Despertar Deep Sleep (PULL-UP interno)
-PIN_BTN_CONTROL = 22           # Botón 2: Pausa / Gestos de Control (PULL-UP interno)
+PIN_BTN = 25                   # Botón Único de Control y Gestos (PULL-UP interno, capaz de RTC)
 PIN_LED_ROJO = 14              # Pin PWM LED Canal Rojo (Curva Enfoque)
 PIN_LED_VERDE = 27             # Pin PWM LED Canal Verde (Descanso Largo)
 PIN_LED_AZUL = 26              # Pin PWM LED Canal Azul (Descanso Corto / Alerta)
 PIN_LED_INTERNO = 2            # Pin del LED incorporado (Built-in) del ESP32
 PIN_BUZZER = 13                # Pin PWM para el zumbador piezoeléctrico activo/pasivo
-
-# --- RESERVA DE PINES DISPLAY 7-SEGMENTOS (74HC595) ---
-# El display de 4 dígitos cátodo común es manejado a través de un registro de
-# desplazamiento 74HC595 para economizar pines del ESP32.
-PIN_74HC595_DS = 4             # Datos Seriales (Data Serial / Serial Data Input)
-PIN_74HC595_SH_CP = 16         # Reloj de desplazamiento (Shift Clock / SRCLK)
-PIN_74HC595_ST_CP = 17         # Reloj de almacenamiento / Latch (Storage Clock / RCLK)
-PIN_DISPLAY_DIG1 = 18          # Control Dígito 1 (Multiplexación: LOW activa dígito)
-PIN_DISPLAY_DIG2 = 19          # Control Dígito 2 (Multiplexación: LOW activa dígito)
-PIN_DISPLAY_DIG3 = 21          # Control Dígito 3 (Multiplexación: LOW activa dígito)
-PIN_DISPLAY_DIG4 = 23          # Control Dígito 4 (Multiplexación: LOW activa dígito)
 
 # --- CONFIGURACIÓN DE FOTORESISTENCIA (LDR) ---
 # Permite regular automáticamente el brillo del LED RGB según la luz ambiental.

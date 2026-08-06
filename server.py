@@ -451,7 +451,7 @@ def sincronizar_config_pc():
     try:
         url = config.FLASK_SERVER_URL.replace("/datos", "/api/latest_config")
         print("[SYNC] Descargando última configuración de la PC desde {}...".format(url))
-        res = urequests.get(url)
+        res = urequests.get(url, timeout=3)
         if res.status_code == 200:
             data = res.json()
             if data:
@@ -485,7 +485,7 @@ def enviar_config_a_pc():
             "descanso_largo_activo": config.descanso_largo_activo,
             "ciclos_para_descanso_largo": config.ciclos_para_descanso_largo
         }
-        res = urequests.post(url, json=payload)
+        res = urequests.post(url, json=payload, timeout=3)
         print("[SYNC REPORT] Configuración respaldada en PC (DB). HTTP Status:", res.status_code)
         res.close()
     except Exception as e:
@@ -493,6 +493,85 @@ def enviar_config_a_pc():
     finally:
         import gc
         gc.collect()
+
+def _enviar_reporte_pausa_thread(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s):
+    if urequests is None:
+        return
+    try:
+        url = config.FLASK_SERVER_URL.replace("/datos", "/api/registro_pausa")
+        payload = {
+            "fase": fase,
+            "tiempo_transcurrido_s": tiempo_transcurrido_s,
+            "porcentaje_transcurrido": porcentaje,
+            "duracion_pausa_s": duracion_pausa_s
+        }
+        res = urequests.post(url, json=payload, timeout=3)
+        res.close()
+    except Exception as e:
+        print("[REPORT PAUSE WARNING] No se pudo enviar reporte de pausa:", e)
+    finally:
+        import gc
+        gc.collect()
+
+def enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s):
+    try:
+        import _thread
+        _thread.start_new_thread(_enviar_reporte_pausa_thread, (fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s))
+    except Exception as e:
+        print("[THREAD ERROR] Fallo al iniciar hilo de pausa ({}). Ejecutando síncrono...".format(e))
+        _enviar_reporte_pausa_thread(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s)
+
+def _enviar_reporte_reaccion_thread(tipo_alerta, duracion_alerta_s):
+    if urequests is None:
+        return
+    try:
+        url = config.FLASK_SERVER_URL.replace("/datos", "/api/registro_reaccion")
+        payload = {
+            "tipo_alerta": tipo_alerta,
+            "duracion_alerta_s": duracion_alerta_s
+        }
+        res = urequests.post(url, json=payload, timeout=3)
+        res.close()
+    except Exception as e:
+        print("[REPORT REACTION WARNING] No se pudo enviar reporte de reacción:", e)
+    finally:
+        import gc
+        gc.collect()
+
+def enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s):
+    try:
+        import _thread
+        _thread.start_new_thread(_enviar_reporte_reaccion_thread, (tipo_alerta, duracion_alerta_s))
+    except Exception as e:
+        print("[THREAD ERROR] Fallo al iniciar hilo de reacción ({}). Ejecutando síncrono...".format(e))
+        _enviar_reporte_reaccion_thread(tipo_alerta, duracion_alerta_s)
+
+def _enviar_reporte_ciclo_thread(fase, evento, tiempo_activo_s, forzado=0):
+    if urequests is None:
+        return
+    try:
+        url = config.FLASK_SERVER_URL.replace("/datos", "/api/registro_ciclo")
+        payload = {
+            "fase": fase,
+            "evento": evento,
+            "tiempo_activo_s": tiempo_activo_s,
+            "forzado": forzado
+        }
+        res = urequests.post(url, json=payload, timeout=3)
+        res.close()
+    except Exception as e:
+        print("[REPORT CYCLE WARNING] No se pudo enviar reporte de ciclo:", e)
+    finally:
+        import gc
+        gc.collect()
+
+def enviar_reporte_ciclo(fase, evento, tiempo_activo_s, forzado=0):
+    try:
+        import _thread
+        _thread.start_new_thread(_enviar_reporte_ciclo_thread, (fase, evento, tiempo_activo_s, forzado))
+    except Exception as e:
+        print("[THREAD ERROR] Fallo al iniciar hilo de ciclo ({}). Ejecutando síncrono...".format(e))
+        _enviar_reporte_ciclo_thread(fase, evento, tiempo_activo_s, forzado)
 
 # ==============================================================================
 # PROCESADORES DE APIS HTTP

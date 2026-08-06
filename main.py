@@ -16,22 +16,12 @@ gc.collect()
 # DETECCIÓN DE CAUSA DE REINICIO (GESTIÓN DE DEEP SLEEP)
 # ==============================================================================
 # La ESP32 entra en Deep Sleep por inactividad para ahorrar energía. Al presionar
-# el botón físico de inicio (GPIO 25), el chip despierta provocando un reset.
-# Aquí evaluamos si el reinicio es debido a haber despertado de Deep Sleep.
-#
-# - Si es un despertar de Deep Sleep: Inicializamos la máquina de estados
-#   directamente en modo FOCUS, emitiendo un tono agradable de encendido
-#   y comenzando a contar la sesión de inmediato para mejorar la respuesta al usuario.
-# - Si es un encendido en frío (por ejemplo, al conectar el cable USB): Simplemente
-#   imprimimos el log e iniciamos en modo STANDBY (espera pasiva).
+# el botón único, el chip despierta provocando un reset.
+# - Si es un despertar de Deep Sleep: Simplemente emitimos un tono de despertar
+#   e iniciamos en modo STANDBY (espera pasiva) por defecto.
 reset_causa = machine.reset_cause()
 if reset_causa == machine.DEEPSLEEP_RESET:
-    print("\n[RESET] Despertado por botón. Iniciando directamente en modo FOCUS.")
-    pomodoro.estado_actual = pomodoro.ESTADO_FOCUS
-    pomodoro.pausado = False
-    pomodoro.cronometro = time.ticks_ms()
-    pomodoro.tiempo_acumulado_ms = 0
-    # Emitir pitido de inicio ascendente de despertar
+    print("\n[RESET] Despertado por botón. Iniciando en modo STANDBY.")
     audio.play_sleep_out()
 else:
     print("\n[RESET] Inicio en frío detectado.")

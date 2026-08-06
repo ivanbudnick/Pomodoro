@@ -58,6 +58,42 @@ color_alerta_actual = "azul"        # Color contextual de la alerta (azul o verd
 pausado = False
 tiempo_acumulado_ms = 0             # Tiempo ya transcurrido de la fase antes de pausar
 
+# --- CONFIGURACIÓN Y VARIABLES DE ESTADO AUXILIARES ---
+siguiente_estado_descanso = None
+inicio_alerta_ms = 0
+inicio_pausa_ms = 0
+
+
+# --- HELPERS Y FUNCIONES DE TELEMETRÍA (METRICAS) ---
+def obtener_nombre_fase(estado):
+    if estado == ESTADO_FOCUS:
+        return "FOCUS"
+    elif estado == ESTADO_DESCANSO_CORTO:
+        return "DESCANSO_CORTO"
+    elif estado == ESTADO_DESCANSO_LARGO:
+        return "DESCANSO_LARGO"
+    return "STANDBY"
+
+def reportar_ciclo(fase, evento, tiempo, forzado=0):
+    try:
+        import server
+        server.enviar_reporte_ciclo(fase, evento, tiempo, forzado)
+    except:
+        pass
+
+def reportar_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s):
+    try:
+        import server
+        server.enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s)
+    except:
+        pass
+
+def reportar_reaccion(tipo_alerta, duracion_alerta_s):
+    try:
+        import server
+        server.enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s)
+    except:
+        pass
 
 # ==============================================================================
 # FUNCIONES DE REPORTERÍA (MQTT & REST FLASK)
@@ -92,7 +128,7 @@ def enviar_reporte_mqtt(tipo_sesion, ciclo_num, duracion_s):
         print("[MQTT REPORT WARNING] No se pudo enviar reporte por MQTT ({}). Intentando fallback por HTTP...".format(e))
         return False
 
-def _enviar_reporte_thread(tipo_sesion, ciclo_num, duracion_s):
+def _enviar_reporte_thread(tipo_sesion, ciclo_num, duracion_s, forzado=0):
     """
     Subfunción interna ejecutada en segundo plano para realizar el envío.
     Intenta primero HTTP (al ser IP local, es instantáneo y evita DNS lookup).
@@ -107,10 +143,11 @@ def _enviar_reporte_thread(tipo_sesion, ciclo_num, duracion_s):
                     "evento": "sesion_completada",
                     "tipo_sesion": tipo_sesion,
                     "ciclo_num": ciclo_num,
-                    "duracion_s": duracion_s
+                    "duracion_s": duracion_s,
+                    "forzado": forzado
                 }
-                res = urequests.post(config.FLASK_SERVER_URL, json=payload)
-                print("[FLASK REPORT] Sesión '{}' (#{}) enviada a la PC. HTTP: {}".format(tipo_sesion, ciclo_num, res.status_code))
+                res = urequests.post(config.FLASK_SERVER_URL, json=payload, timeout=3)
+                print("[FLASK REPORT] Sesión '{}' (#{}) enviada a la PC. HTTP: {}, Forzado: {}".format(tipo_sesion, ciclo_num, res.status_code, forzado))
                 res.close()
                 return  # Éxito, salir de la función
             except Exception as e:
@@ -124,19 +161,18 @@ def _enviar_reporte_thread(tipo_sesion, ciclo_num, duracion_s):
         import gc
         gc.collect()
 
-def enviar_reporte_flask(tipo_sesion, ciclo_num, duracion_s):
+def enviar_reporte_flask(tipo_sesion, ciclo_num, duracion_s, forzado=0):
     """
     Registra el fin de una sesión de forma remota en la base de datos de la PC.
     Para evitar bloquear el bucle principal (lo que causaría demoras en el paso
-    de fases y parpadeo errático del display de 7 segmentos), esta operación
-    de red se delega a un hilo de fondo asíncrono.
+    de fases), esta operación de red se delega a un hilo de fondo asíncrono.
     """
     try:
         import _thread
-        _thread.start_new_thread(_enviar_reporte_thread, (tipo_sesion, ciclo_num, duracion_s))
+        _thread.start_new_thread(_enviar_reporte_thread, (tipo_sesion, ciclo_num, duracion_s, forzado))
     except Exception as e:
         print("[THREAD ERROR] No se pudo iniciar hilo de reporte ({}). Ejecutando síncrono...".format(e))
-        _enviar_reporte_thread(tipo_sesion, ciclo_num, duracion_s)
+        _enviar_reporte_thread(tipo_sesion, ciclo_num, duracion_s, forzado)
 
 # ==============================================================================
 # HELPERS DE TEMPORIZACIÓN (OPTIMIZACIÓN DE CÓDIGO)
@@ -237,12 +273,13 @@ def _ejecutar_estado_standby(ahora, start_requested):
         pausado = False
         estado_actual = ESTADO_FOCUS
         print("[POMODORO] Inicio Sesión FOCUS ({}s).".format(config.tiempo_focus_s))
+        reportar_ciclo("FOCUS", "INICIADO", 0)
         audio.play_start_cold()
         time.sleep_ms(config.DEBOUNCE_BOTON_MS)
 
 def _ejecutar_estado_focus(ahora):
     """Fase activa de enfoque: Modula la luz roja en rampa exponencial progresiva"""
-    global estado_actual, cronometro, tiempo_acumulado_ms, ciclos_focus_consecutivos
+    global estado_actual, cronometro, tiempo_acumulado_ms, ciclos_focus_consecutivos, color_alerta_actual, siguiente_estado_descanso, inicio_alerta_ms, ultimo_titilo, estado_luz_titilo
     hardware.sonar_buzzer(0, False)
     
     transcurrido = tiempo_acumulado_ms + time.ticks_diff(ahora, cronometro)
@@ -257,6 +294,9 @@ def _ejecutar_estado_focus(ahora):
         audio.play_done_focus()
         enviar_reporte_flask("focus", ciclos_focus_consecutivos, config.tiempo_focus_s)
         
+        # Reportar completado del FOCUS
+        reportar_ciclo("FOCUS", "COMPLETADO", config.tiempo_focus_s)
+        
         cronometro = ahora
         tiempo_acumulado_ms = 0
         
@@ -267,15 +307,20 @@ def _ejecutar_estado_focus(ahora):
         )
         
         if es_descanso_largo:
-            estado_actual = ESTADO_DESCANSO_LARGO
-            print("[POMODORO] Inicio DESCANSO LARGO (LED Verde, {}s).".format(config.tiempo_descanso_largo_s))
+            siguiente_estado_descanso = ESTADO_DESCANSO_LARGO
         else:
-            estado_actual = ESTADO_DESCANSO_CORTO
-            print("[POMODORO] Inicio DESCANSO CORTO (LED Azul, {}s).".format(config.tiempo_descanso_corto_s))
+            siguiente_estado_descanso = ESTADO_DESCANSO_CORTO
+            
+        color_alerta_actual = "rojo"
+        inicio_alerta_ms = ahora
+        ultimo_titilo = ahora
+        estado_luz_titilo = True
+        estado_actual = ESTADO_ALERTA_TITILANDO
+        print("[POMODORO] Fin Focus. Esperando confirmación para iniciar descanso (Alerta Roja).")
 
 def _ejecutar_estado_descanso_corto(ahora):
     """Fase de descanso corto: Modula la luz azul en rampa exponencial progresiva"""
-    global estado_actual, cronometro, tiempo_acumulado_ms, ultimo_titilo, estado_luz_titilo, color_alerta_actual
+    global estado_actual, cronometro, tiempo_acumulado_ms, ultimo_titilo, estado_luz_titilo, color_alerta_actual, inicio_alerta_ms
     
     transcurrido = tiempo_acumulado_ms + time.ticks_diff(ahora, cronometro)
     duracion_ms = config.tiempo_descanso_corto_s * 1000
@@ -288,17 +333,21 @@ def _ejecutar_estado_descanso_corto(ahora):
         audio.play_done_break()
         enviar_reporte_flask("descanso_corto", ciclos_focus_consecutivos, config.tiempo_descanso_corto_s)
         
+        # Reportar completado del descanso corto
+        reportar_ciclo("DESCANSO_CORTO", "COMPLETADO", config.tiempo_descanso_corto_s)
+        
         cronometro = ahora
         tiempo_acumulado_ms = 0
-        ultimo_titilo = time.ticks_ms()
+        ultimo_titilo = ahora
         estado_luz_titilo = True
         color_alerta_actual = "azul"
+        inicio_alerta_ms = ahora
         estado_actual = ESTADO_ALERTA_TITILANDO
         print("[POMODORO] Fin Descanso Corto. Estado: Alerta (Azul).")
 
 def _ejecutar_estado_descanso_largo(ahora):
     """Fase de descanso largo: Modula la luz verde en rampa exponencial progresiva"""
-    global estado_actual, cronometro, tiempo_acumulado_ms, ultimo_titilo, estado_luz_titilo, color_alerta_actual
+    global estado_actual, cronometro, tiempo_acumulado_ms, ultimo_titilo, estado_luz_titilo, color_alerta_actual, inicio_alerta_ms
     
     transcurrido = tiempo_acumulado_ms + time.ticks_diff(ahora, cronometro)
     duracion_ms = config.tiempo_descanso_largo_s * 1000
@@ -311,26 +360,35 @@ def _ejecutar_estado_descanso_largo(ahora):
         audio.play_done_break()
         enviar_reporte_flask("descanso_largo", ciclos_focus_consecutivos, config.tiempo_descanso_largo_s)
         
+        # Reportar completado del descanso largo
+        reportar_ciclo("DESCANSO_LARGO", "COMPLETADO", config.tiempo_descanso_largo_s)
+        
         cronometro = ahora
         tiempo_acumulado_ms = 0
-        ultimo_titilo = time.ticks_ms()
+        ultimo_titilo = ahora
         estado_luz_titilo = True
         color_alerta_actual = "verde"
+        inicio_alerta_ms = ahora
         estado_actual = ESTADO_ALERTA_TITILANDO
         print("[POMODORO] Fin Descanso Largo. Estado: Alerta (Verde).")
 
 def _ejecutar_estado_alerta(ahora, start_requested):
     """El temporizador finalizó: Destella la luz con pitidos cortos e intermitentes"""
-    global estado_actual, cronometro, tiempo_acumulado_ms, pausado, ultimo_titilo, estado_luz_titilo
+    global estado_actual, cronometro, tiempo_acumulado_ms, pausado, ultimo_titilo, estado_luz_titilo, color_alerta_actual
     
     if time.ticks_diff(ahora, ultimo_titilo) >= config.INTERVALO_ALERTA_MS:
         estado_luz_titilo = not estado_luz_titilo
         if estado_luz_titilo:
             if color_alerta_actual == "verde":
                 hardware.set_color_pwm(0, config.DUTY_MAX, 0)
-            else:
+                audio.play_alert_pip()
+            elif color_alerta_actual == "azul":
                 hardware.set_color_pwm(0, 0, config.DUTY_MAX)
-            audio.play_alert_pip()
+                audio.play_alert_pip()
+            elif color_alerta_actual == "rojo":
+                # Alerta roja post-focus (parpadeo rojo)
+                hardware.set_color_pwm(config.DUTY_MAX, 0, 0)
+                audio.play_alert_pip()
         else:
             hardware.set_color_pwm(0, 0, 0)
             hardware.sonar_buzzer(0, False)
@@ -341,19 +399,32 @@ def _ejecutar_estado_alerta(ahora, start_requested):
         cronometro = ahora
         tiempo_acumulado_ms = 0
         pausado = False
-        estado_actual = ESTADO_FOCUS
-        print("[POMODORO] Reinicio. Inicio Sesión FOCUS ({}s).".format(config.tiempo_focus_s))
+        
+        # Calcular y reportar tiempo de reacción
+        duracion_alerta_s = time.ticks_diff(ahora, inicio_alerta_ms) / 1000.0
+        
+        if color_alerta_actual == "rojo":
+            # Salimos de alerta roja (post-focus) al descanso correspondiente
+            reportar_reaccion("POST_FOCUS", duracion_alerta_s)
+            
+            estado_actual = siguiente_estado_descanso
+            if estado_actual == ESTADO_DESCANSO_LARGO:
+                print("[POMODORO] Inicio DESCANSO LARGO (LED Verde, {}s).".format(config.tiempo_descanso_largo_s))
+                reportar_ciclo("DESCANSO_LARGO", "INICIADO", 0)
+            else:
+                print("[POMODORO] Inicio DESCANSO CORTO (LED Azul, {}s).".format(config.tiempo_descanso_corto_s))
+                reportar_ciclo("DESCANSO_CORTO", "INICIADO", 0)
+        else:
+            # Salimos de alerta post-descanso a una nueva sesión de Focus
+            tipo_alerta = "POST_DESCANSO_LARGO" if color_alerta_actual == "verde" else "POST_DESCANSO_CORTO"
+            reportar_reaccion(tipo_alerta, duracion_alerta_s)
+            
+            estado_actual = ESTADO_FOCUS
+            print("[POMODORO] Reinicio. Inicio Sesión FOCUS ({}s).".format(config.tiempo_focus_s))
+            reportar_ciclo("FOCUS", "INICIADO", 0)
+            
         audio.play_start_warm()
         time.sleep_ms(config.DEBOUNCE_BOTON_MS)
-
-def _actualizar_display_siete_segmentos(ahora):
-    """Determina la representación del tiempo o estado en la pantalla"""
-    if estado_actual == ESTADO_STANDBY or estado_actual == ESTADO_ALERTA_TITILANDO:
-        hardware.display.mostrar_texto("----")
-    else:
-        ocultar = (estado_actual != ESTADO_FOCUS)
-        remaining_s = obtener_segundos_restantes(ahora)
-        hardware.display.mostrar_pomodoro(remaining_s, ciclos_focus_consecutivos, ocultar_vueltas=ocultar)
 
 # ==============================================================================
 # INTERFAZ PÚBLICA DEL MÓDULO
@@ -365,12 +436,12 @@ def ejecutar_pomodoro_step():
     Es llamado desde el loop principal en main.py en cada iteración.
     Ejecuta comprobaciones de gestos y calcula las trancisiones de la FSM de manera no bloqueante.
     """
-    global estado_actual, cronometro, ultimo_titilo, estado_luz_titilo, ciclos_focus_consecutivos, pausado, tiempo_acumulado_ms
+    global estado_actual, cronometro, ultimo_titilo, estado_luz_titilo, ciclos_focus_consecutivos, pausado, tiempo_acumulado_ms, inicio_pausa_ms
     
     ahora = time.ticks_ms()
     botón_pulsado = hardware.boton_presionado()
     gesto_resuelto = hardware.detectar_gesto_boton_control()
-    start_requested = botón_pulsado
+    start_requested = (gesto_resuelto == hardware.GESTO_PAUSA)
     
     # Registrar actividad del usuario para prolongar el tiempo antes de entrar a hibernar
     if ((estado_actual != ESTADO_STANDBY and not pausado) or 
@@ -381,6 +452,18 @@ def ejecutar_pomodoro_step():
     # GESTO MANTENER: Reset total al modo de espera (Standby)
     if gesto_resuelto == hardware.GESTO_RESET_IDLE:
         if estado_actual != ESTADO_STANDBY:
+            fase_nombre = obtener_nombre_fase(estado_actual)
+            duracion_parcial_s = (tiempo_acumulado_ms + time.ticks_diff(ahora, cronometro)) // 1000
+            
+            # Si estaba pausado, reportar la pausa acumulada antes de cancelar
+            if pausado and inicio_pausa_ms > 0:
+                duracion_pausa_s = time.ticks_diff(ahora, inicio_pausa_ms) // 1000
+                total_s = config.tiempo_focus_s if estado_actual == ESTADO_FOCUS else (config.tiempo_descanso_corto_s if estado_actual == ESTADO_DESCANSO_CORTO else config.tiempo_descanso_largo_s)
+                pct = min(100.0, (tiempo_acumulado_ms // 1000) / total_s * 100.0) if total_s > 0 else 0.0
+                reportar_pausa(fase_nombre, tiempo_acumulado_ms // 1000, pct, duracion_pausa_s)
+                
+            reportar_ciclo(fase_nombre, "CANCELADO", duracion_parcial_s)
+            
             audio.play_reset_idle()
             estado_actual = ESTADO_STANDBY
             pausado = False
@@ -392,11 +475,81 @@ def ejecutar_pomodoro_step():
 
     # GESTOS EN TIEMPO DE FASE: Pausa y Reset local de fase
     if estado_actual != ESTADO_STANDBY and estado_actual != ESTADO_ALERTA_TITILANDO:
-        # Doble clic -> Reiniciar temporizador de fase actual a 0s
-        if gesto_resuelto == hardware.GESTO_RESET_FASE:
+        # Triple clic -> Avance Forzado de Fase
+        if gesto_resuelto == hardware.GESTO_AVANCE_FORZADO:
+            fase_nombre = obtener_nombre_fase(estado_actual)
+            duracion_parcial_s = (tiempo_acumulado_ms + time.ticks_diff(ahora, cronometro)) // 1000
+            
+            # Si estaba pausado, reportar la pausa antes de avanzar
+            if pausado and inicio_pausa_ms > 0:
+                duracion_pausa_s = time.ticks_diff(ahora, inicio_pausa_ms) // 1000
+                total_s = config.tiempo_focus_s if estado_actual == ESTADO_FOCUS else (config.tiempo_descanso_corto_s if estado_actual == ESTADO_DESCANSO_CORTO else config.tiempo_descanso_largo_s)
+                pct = min(100.0, (tiempo_acumulado_ms // 1000) / total_s * 100.0) if total_s > 0 else 0.0
+                reportar_pausa(fase_nombre, tiempo_acumulado_ms // 1000, pct, duracion_pausa_s)
+                inicio_pausa_ms = 0
+            
+            hardware.sonar_buzzer(0, False)
+            hardware.set_color_pwm(0, 0, 0)
+            
+            if estado_actual == ESTADO_FOCUS:
+                ciclos_focus_consecutivos += 1
+                print("[POMODORO] Avance Forzado de FOCUS ({}s)".format(duracion_parcial_s))
+                
+                enviar_reporte_flask("focus", ciclos_focus_consecutivos, duracion_parcial_s, forzado=1)
+                reportar_ciclo("FOCUS", "FORZADO", duracion_parcial_s)
+                
+                # Determinar si corresponde ir a descanso largo o corto
+                es_descanso_largo = (
+                    config.descanso_largo_activo and 
+                    (ciclos_focus_consecutivos % max(2, config.ciclos_para_descanso_largo) == 0)
+                )
+                
+                if es_descanso_largo:
+                    estado_actual = ESTADO_DESCANSO_LARGO
+                    print("[POMODORO] Inicio DESCANSO LARGO directo (LED Verde, {}s).".format(config.tiempo_descanso_largo_s))
+                    reportar_ciclo("DESCANSO_LARGO", "INICIADO", 0)
+                else:
+                    estado_actual = ESTADO_DESCANSO_CORTO
+                    print("[POMODORO] Inicio DESCANSO CORTO directo (LED Azul, {}s).".format(config.tiempo_descanso_corto_s))
+                    reportar_ciclo("DESCANSO_CORTO", "INICIADO", 0)
+            else:
+                print("[POMODORO] Avance Forzado de descanso {} ({}s)".format(fase_nombre, duracion_parcial_s))
+                
+                enviar_reporte_flask("descanso_largo" if estado_actual == ESTADO_DESCANSO_LARGO else "descanso_corto", ciclos_focus_consecutivos, duracion_parcial_s, forzado=1)
+                reportar_ciclo(fase_nombre, "FORZADO", duracion_parcial_s)
+                
+                estado_actual = ESTADO_FOCUS
+                print("[POMODORO] Inicio Sesión FOCUS directo ({}s).".format(config.tiempo_focus_s))
+                reportar_ciclo("FOCUS", "INICIADO", 0)
+                
             cronometro = ahora
             tiempo_acumulado_ms = 0
             pausado = False
+            
+            audio.play_start_warm()
+            time.sleep_ms(config.DEBOUNCE_BOTON_MS)
+            return
+
+        # Doble clic -> Reiniciar temporizador de fase actual a 0s
+        if gesto_resuelto == hardware.GESTO_RESET_FASE:
+            fase_nombre = obtener_nombre_fase(estado_actual)
+            duracion_parcial_s = (tiempo_acumulado_ms + time.ticks_diff(ahora, cronometro)) // 1000
+            
+            # Si estaba pausado, reportar la pausa antes de cancelar
+            if pausado and inicio_pausa_ms > 0:
+                duracion_pausa_s = time.ticks_diff(ahora, inicio_pausa_ms) // 1000
+                total_s = config.tiempo_focus_s if estado_actual == ESTADO_FOCUS else (config.tiempo_descanso_corto_s if estado_actual == ESTADO_DESCANSO_CORTO else config.tiempo_descanso_largo_s)
+                pct = min(100.0, (tiempo_acumulado_ms // 1000) / total_s * 100.0) if total_s > 0 else 0.0
+                reportar_pausa(fase_nombre, tiempo_acumulado_ms // 1000, pct, duracion_pausa_s)
+            
+            reportar_ciclo(fase_nombre, "CANCELADO", duracion_parcial_s)
+            
+            cronometro = ahora
+            tiempo_acumulado_ms = 0
+            pausado = False
+            
+            reportar_ciclo(fase_nombre, "INICIADO", 0)
+            
             audio.play_reset_phase()
             print("[POMODORO] Fase actual reseteada a 0s.")
             return
@@ -408,10 +561,31 @@ def ejecutar_pomodoro_step():
                 tiempo_acumulado_ms += time.ticks_diff(ahora, cronometro)
                 print("[POMODORO] Temporizador PAUSADO.")
                 audio.play_pause()
+                
+                # Iniciar tracking de pausa
+                inicio_pausa_ms = ahora
             else:
                 cronometro = ahora
                 print("[POMODORO] Temporizador REANUDADO.")
                 audio.play_resume()
+                
+                # Calcular y reportar pausa
+                if inicio_pausa_ms > 0:
+                    duracion_pausa_s = time.ticks_diff(ahora, inicio_pausa_ms) // 1000
+                    fase_nombre = obtener_nombre_fase(estado_actual)
+                    
+                    if estado_actual == ESTADO_FOCUS:
+                        total_s = config.tiempo_focus_s
+                    elif estado_actual == ESTADO_DESCANSO_CORTO:
+                        total_s = config.tiempo_descanso_corto_s
+                    else:
+                        total_s = config.tiempo_descanso_largo_s
+                        
+                    tiempo_transcurrido_s = tiempo_acumulado_ms // 1000
+                    pct = min(100.0, (tiempo_transcurrido_s / total_s) * 100.0) if total_s > 0 else 0.0
+                    
+                    reportar_pausa(fase_nombre, tiempo_transcurrido_s, pct, duracion_pausa_s)
+                    inicio_pausa_ms = 0
             return
 
     # Si está en pausa, titilar suavemente manteniendo el brillo estático y retornar
@@ -430,8 +604,6 @@ def ejecutar_pomodoro_step():
         _ejecutar_estado_descanso_largo(ahora)
     elif estado_actual == ESTADO_ALERTA_TITILANDO:
         _ejecutar_estado_alerta(ahora, start_requested)
-        
-    _actualizar_display_siete_segmentos(ahora)
 
 def registrar_actividad():
     """Guarda una marca de tiempo con la última pulsación o comando recibido"""
@@ -453,7 +625,6 @@ def verificar_y_ejecutar_sleep():
             
             audio.play_sleep_in()
             hardware.set_color_pwm(0, 0, 0)
-            hardware.display.detener()
             
             # Preparar pin para disparar el despertar lógico por flanco descendente (0)
             import machine
