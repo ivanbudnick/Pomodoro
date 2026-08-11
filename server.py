@@ -326,6 +326,7 @@ def _retornar_ip_conexion(wlan):
     print("\n==========================================")
     print(" ¡CONECTADO A WIFI EXITOSAMENTE!")
     print(" Dirección IP de la ESP32: http://{}".format(ip))
+    print(" URL para editar configuración de tiempos: http://{}/".format(ip))
     print("==========================================\n")
     return ip
 
@@ -788,7 +789,16 @@ def iniciar_servidor_http():
         server_socket.listen(5)
         # Configurar en modo no bloqueante para evitar detener la máquina de estados en main.py
         server_socket.setblocking(False)
+        
+        try:
+            import network
+            wlan = network.WLAN(network.STA_IF)
+            ip = wlan.ifconfig()[0] if wlan.isconnected() else "192.168.4.1"
+        except:
+            ip = "192.168.4.1"
+            
         print("Servidor HTTP iniciado en puerto 80. Bucle Pomodoro activo.")
+        print("Edita la configuración de tiempos en: http://{}/".format(ip))
     except Exception as e:
         print("[ADVERTENCIA] No se pudo iniciar el servidor HTTP ({}). El Pomodoro funcionará en modo local.".format(e))
 
