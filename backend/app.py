@@ -9,112 +9,166 @@ app = Flask(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'pomodoro.db')
 
+class DatabaseCursorWrapper:
+    def __init__(self, cursor, is_pg):
+        self._cursor = cursor
+        self._is_pg = is_pg
+        
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+        
+    def execute(self, query, params=None):
+        if self._is_pg:
+            query = query.replace('?', '%s')
+            query = query.replace('date(timestamp)', 'timestamp::date')
+        if params is None:
+            return self._cursor.execute(query)
+        return self._cursor.execute(query, params)
+
+class ConnectionWrapper:
+    def __init__(self, conn):
+        self._conn = conn
+        self._is_pg = not isinstance(conn, sqlite3.Connection)
+        
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+        
+    def cursor(self, *args, **kwargs):
+        cursor = self._conn.cursor(*args, **kwargs)
+        return DatabaseCursorWrapper(cursor, self._is_pg)
+        
+    def __enter__(self):
+        self._conn.__enter__()
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return self._conn.__exit__(exc_type, exc_val, exc_tb)
+
+def get_db_connection():
+    db_url = os.environ.get('DATABASE_URL') or os.environ.get('POSTGRES_URL')
+    if db_url and (db_url.startswith('postgres://') or db_url.startswith('postgresql://')):
+        try:
+            import psycopg2
+            if db_url.startswith('postgres://'):
+                db_url = db_url.replace('postgres://', 'postgresql://', 1)
+            conn = psycopg2.connect(db_url)
+            return ConnectionWrapper(conn)
+        except Exception as e:
+            print("[DB] Fallo al conectar a Postgres. Usando SQLite local.", e)
+            
+    return ConnectionWrapper(sqlite3.connect(DB_PATH))
+
+def is_postgres(conn):
+    # En nuestro ConnectionWrapper, el objeto real es _conn
+    return not isinstance(conn._conn if hasattr(conn, '_conn') else conn, sqlite3.Connection)
+
 def init_db():
-    """Inicializa la base de datos SQLite con soporte para tipos de sesión Pomodoro Pro, métricas y avance forzado"""
-    conn = sqlite3.connect(DB_PATH)
+    """Inicializa la base de datos (PostgreSQL o SQLite) con soporte para tipos de sesión Pomodoro Pro, métricas y avance forzado"""
+    conn = get_db_connection()
     cursor = conn.cursor()
     
+    is_pg = is_postgres(conn)
+    serial_type = "SERIAL PRIMARY KEY" if is_pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    datetime_type = "TIMESTAMP" if is_pg else "DATETIME"
+    real_type = "REAL"
+    integer_type = "INTEGER"
+    text_type = "TEXT"
+    
     # Crear tabla de sesiones
-    cursor.execute('''
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS sesiones_pomodoro (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            dispositivo TEXT,
-            tipo_sesion TEXT DEFAULT 'focus',
-            ciclo_num INTEGER,
-            duracion_s INTEGER,
-            configuracion_id INTEGER,
-            forzado INTEGER DEFAULT 0
+            id {serial_type},
+            timestamp {datetime_type} DEFAULT CURRENT_TIMESTAMP,
+            dispositivo {text_type},
+            tipo_sesion {text_type} DEFAULT 'focus',
+            ciclo_num {integer_type},
+            duracion_s {integer_type},
+            configuracion_id {integer_type},
+            forzado {integer_type} DEFAULT 0
         )
     ''')
     
     # Crear tabla de configuraciones
-    cursor.execute('''
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS configuraciones (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            tiempo_focus INTEGER,
-            tiempo_descanso_corto INTEGER,
-            tiempo_descanso_largo INTEGER,
-            descanso_largo_activo INTEGER,
-            ciclos_para_descanso_largo INTEGER
+            id {serial_type},
+            timestamp {datetime_type} DEFAULT CURRENT_TIMESTAMP,
+            tiempo_focus {integer_type},
+            tiempo_descanso_corto {integer_type},
+            tiempo_descanso_largo {integer_type},
+            descanso_largo_activo {integer_type},
+            ciclos_para_descanso_largo {integer_type}
         )
     ''')
     
     # Crear tabla de pausas
-    cursor.execute('''
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS pausas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            fase TEXT,
-            tiempo_transcurrido_s INTEGER,
-            porcentaje_transcurrido REAL,
-            duracion_pausa_s INTEGER,
-            configuracion_id INTEGER
+            id {serial_type},
+            timestamp {datetime_type} DEFAULT CURRENT_TIMESTAMP,
+            fase {text_type},
+            tiempo_transcurrido_s {integer_type},
+            porcentaje_transcurrido {real_type},
+            duracion_pausa_s {integer_type},
+            configuracion_id {integer_type}
         )
     ''')
 
     # Crear tabla de tiempos de reacción a las alertas
-    cursor.execute('''
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS tiempos_reaccion (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            tipo_alerta TEXT,
-            duracion_alerta_s REAL,
-            configuracion_id INTEGER
+            id {serial_type},
+            timestamp {datetime_type} DEFAULT CURRENT_TIMESTAMP,
+            tipo_alerta {text_type},
+            duracion_alerta_s {real_type},
+            configuracion_id {integer_type}
         )
     ''')
 
     # Crear tabla de eventos de ciclos (inicio, fin, cancelación, forzado)
-    cursor.execute('''
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS eventos_ciclos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            fase TEXT,
-            evento TEXT,
-            tiempo_activo_s INTEGER,
-            configuracion_id INTEGER,
-            forzado INTEGER DEFAULT 0
+            id {serial_type},
+            timestamp {datetime_type} DEFAULT CURRENT_TIMESTAMP,
+            fase {text_type},
+            evento {text_type},
+            tiempo_activo_s {integer_type},
+            configuracion_id {integer_type},
+            forzado {integer_type} DEFAULT 0
         )
     ''')
     
-    # Migrar tabla legacy si existía
-    cursor.execute("PRAGMA table_info(ciclos_rojos)")
-    legacy_exists = cursor.fetchall()
-    if legacy_exists:
+    if not is_pg:
+        # Migraciones legacy solo para SQLite
         try:
-            cursor.execute('''
-                INSERT INTO sesiones_pomodoro (timestamp, dispositivo, tipo_sesion, ciclo_num, duracion_s)
-                SELECT timestamp, dispositivo, 'focus', ciclo_num, duracion_s FROM ciclos_rojos
-            ''')
-            cursor.execute("DROP TABLE ciclos_rojos")
+            cursor.execute("PRAGMA table_info(ciclos_rojos)")
+            legacy_exists = cursor.fetchall()
+            if legacy_exists:
+                cursor.execute('''
+                    INSERT INTO sesiones_pomodoro (timestamp, dispositivo, tipo_sesion, ciclo_num, duracion_s)
+                    SELECT timestamp, dispositivo, 'focus', ciclo_num, duracion_s FROM ciclos_rojos
+                ''')
+                cursor.execute("DROP TABLE ciclos_rojos")
         except:
             pass
 
-    # Agregar columna configuracion_id a sesiones_pomodoro si no existe (migración)
-    cursor.execute("PRAGMA table_info(sesiones_pomodoro)")
-    cols = [row[1] for row in cursor.fetchall()]
-    if "configuracion_id" not in cols:
         try:
-            cursor.execute("ALTER TABLE sesiones_pomodoro ADD COLUMN configuracion_id INTEGER")
-        except Exception as e:
-            print("[BD MIGRATION ERROR] No se pudo agregar configuracion_id a sesiones_pomodoro:", e)
+            cursor.execute("PRAGMA table_info(sesiones_pomodoro)")
+            cols = [row[1] for row in cursor.fetchall()]
+            if "configuracion_id" not in cols:
+                cursor.execute("ALTER TABLE sesiones_pomodoro ADD COLUMN configuracion_id INTEGER")
+            if "forzado" not in cols:
+                cursor.execute("ALTER TABLE sesiones_pomodoro ADD COLUMN forzado INTEGER DEFAULT 0")
+        except:
+            pass
 
-    # Agregar columna forzado a sesiones_pomodoro si no existe (migración)
-    if "forzado" not in cols:
         try:
-            cursor.execute("ALTER TABLE sesiones_pomodoro ADD COLUMN forzado INTEGER DEFAULT 0")
-        except Exception as e:
-            print("[BD MIGRATION ERROR] No se pudo agregar forzado a sesiones_pomodoro:", e)
-
-    # Agregar columna forzado a eventos_ciclos si no existe (migración)
-    cursor.execute("PRAGMA table_info(eventos_ciclos)")
-    cols_ciclos = [row[1] for row in cursor.fetchall()]
-    if "forzado" not in cols_ciclos:
-        try:
-            cursor.execute("ALTER TABLE eventos_ciclos ADD COLUMN forzado INTEGER DEFAULT 0")
-        except Exception as e:
-            print("[BD MIGRATION ERROR] No se pudo agregar forzado a eventos_ciclos:", e)
+            cursor.execute("PRAGMA table_info(eventos_ciclos)")
+            cols_ciclos = [row[1] for row in cursor.fetchall()]
+            if "forzado" not in cols_ciclos:
+                cursor.execute("ALTER TABLE eventos_ciclos ADD COLUMN forzado INTEGER DEFAULT 0")
+        except:
+            pass
             
     # Insertar configuración por defecto si la tabla está vacía
     cursor.execute("SELECT COUNT(*) FROM configuraciones")
@@ -397,6 +451,38 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 <div class="stat-value">{{ racha_maxima }}</div>
                 <div class="stat-label">Mejor racha (días)</div>
             </div>
+        </div>
+
+        <!-- CONFIGURACIÓN DE TIEMPOS (UNIFICADA) -->
+        <div class="table-card" style="margin-bottom: 40px;">
+            <h3 style="margin-bottom: 8px; font-size: 1.1rem; font-weight: 600; color: #ffffff;">Configuración de Tiempos Pomodoro</h3>
+            <p style="font-size: 0.8rem; color: var(--muted); margin-bottom: 20px;">Ajusta los intervalos de tiempo en minutos. Los cambios se guardarán en Supabase y se sincronizarán con el ESP32.</p>
+            <form id="configForm" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; align-items: end;">
+                <div>
+                    <label style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 8px; letter-spacing: 0.5px;">TIEMPO DE FOCUS (MINUTOS)</label>
+                    <input type="number" id="inputFocus" name="tiempo_focus" min="1" max="180" style="width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; color: white; font-family: var(--font); font-size: 0.9rem;" required>
+                </div>
+                <div>
+                    <label style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 8px; letter-spacing: 0.5px;">DESCANSO CORTO (MINUTOS)</label>
+                    <input type="number" id="inputDescansoCorto" name="tiempo_descanso_corto" min="1" max="60" style="width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; color: white; font-family: var(--font); font-size: 0.9rem;" required>
+                </div>
+                <div>
+                    <label style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 8px; letter-spacing: 0.5px;">DESCANSO LARGO (MINUTOS)</label>
+                    <input type="number" id="inputDescansoLargo" name="tiempo_descanso_largo" min="1" max="60" style="width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; color: white; font-family: var(--font); font-size: 0.9rem;" required>
+                </div>
+                <div>
+                    <label style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 8px; letter-spacing: 0.5px;">CANTIDAD CICLOS ENFOQUE</label>
+                    <input type="number" id="inputCiclosLargo" name="ciclos_para_descanso_largo" min="1" max="12" style="width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; color: white; font-family: var(--font); font-size: 0.9rem;" required>
+                </div>
+                <div style="grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding-top: 6px;">
+                    <input type="checkbox" id="inputDescansoLargoActivo" name="descanso_largo_activo" style="width: 16px; height: 16px; accent-color: var(--focus); cursor: pointer;">
+                    <label for="inputDescansoLargoActivo" style="font-size: 0.85rem; color: #cbd5e1; user-select: none; cursor: pointer;">Activar descanso largo automático</label>
+                </div>
+                <div style="grid-column: 1 / -1; display: flex; align-items: center; gap: 15px; margin-top: 10px;">
+                    <button type="submit" style="background: var(--focus); border: none; border-radius: 10px; color: white; padding: 11px 24px; font-weight: 600; font-family: var(--font); font-size: 0.9rem; cursor: pointer; transition: background-color 0.2s, transform 0.1s;" onmouseover="this.style.backgroundColor='#cf4e4e'" onmouseout="this.style.backgroundColor='var(--focus)'" onmousedown="this.style.transform='scale(0.98)'" onmouseup="this.style.transform='scale(1)'">Guardar cambios</button>
+                    <span id="saveStatus" style="font-size: 0.85rem; font-weight: 500;"></span>
+                </div>
+            </form>
         </div>
 
         <!-- SECCIÓN DE GRÁFICOS -->
@@ -683,7 +769,61 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             }
         }
 
+        // Cargar configuración de tiempos (segundos -> minutos)
+        async function cargarConfiguracion() {
+            try {
+                const res = await fetch('/api/latest_config');
+                const data = await res.json();
+                if (data) {
+                    document.getElementById('inputFocus').value = Math.round((data.tiempo_focus || 1500) / 60);
+                    document.getElementById('inputDescansoCorto').value = Math.round((data.tiempo_descanso_corto || 300) / 60);
+                    document.getElementById('inputDescansoLargo').value = Math.round((data.tiempo_descanso_largo || 900) / 60);
+                    document.getElementById('inputCiclosLargo').value = data.ciclos_para_descanso_largo || 4;
+                    document.getElementById('inputDescansoLargoActivo').checked = data.descanso_largo_activo !== false;
+                }
+            } catch(e) {
+                console.error("Error cargando configuración inicial:", e);
+            }
+        }
+
+        // Manejar envío del formulario (minutos -> segundos)
+        document.getElementById('configForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const status = document.getElementById('saveStatus');
+            status.textContent = "Guardando...";
+            status.style.color = "var(--muted)";
+            
+            const payload = {
+                tiempo_focus: parseInt(document.getElementById('inputFocus').value) * 60,
+                tiempo_descanso_corto: parseInt(document.getElementById('inputDescansoCorto').value) * 60,
+                tiempo_descanso_largo: parseInt(document.getElementById('inputDescansoLargo').value) * 60,
+                ciclos_para_descanso_largo: parseInt(document.getElementById('inputCiclosLargo').value),
+                descanso_largo_activo: document.getElementById('inputDescansoLargoActivo').checked
+            };
+            
+            try {
+                const res = await fetch('/api/save_config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await res.json();
+                if (result.status === 'success') {
+                    status.textContent = "¡Configuración guardada exitosamente!";
+                    status.style.color = "var(--descanso-largo)";
+                    setTimeout(() => status.textContent = "", 3000);
+                } else {
+                    status.textContent = "Error: " + result.message;
+                    status.style.color = "var(--focus)";
+                }
+            } catch(err) {
+                status.textContent = "Error de red al guardar.";
+                status.style.color = "var(--focus)";
+            }
+        });
+
         cargarGraficos();
+        cargarConfiguracion();
     </script>
 </body>
 </html>
@@ -737,7 +877,7 @@ def calcular_rachas(conn):
 @app.route('/', methods=['GET'])
 def index():
     """Ruta principal con Dashboard Unificado"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # 1. Sesiones de pomodoro (incluyendo flag de avance forzado)
@@ -844,7 +984,7 @@ def recibir_datos():
         if data.get('evento') == 'ciclo_rojo_completado':
             tipo_sesion = 'focus'
             
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Obtener el ID de la configuración activa
@@ -881,7 +1021,7 @@ def registro_pausa():
         porcentaje_transcurrido = float(data.get('porcentaje_transcurrido', 0.0))
         duracion_pausa_s = int(data.get('duracion_pausa_s', 0))
         
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Obtener el ID de la configuración activa
@@ -916,7 +1056,7 @@ def registro_reaccion():
         tipo_alerta = data.get('tipo_alerta', 'DESCONOCIDO')
         duracion_alerta_s = float(data.get('duracion_alerta_s', 0.0))
         
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Obtener el ID de la configuración activa
@@ -953,7 +1093,7 @@ def registro_ciclo():
         tiempo_activo_s = int(data.get('tiempo_activo_s', 0))
         forzado = int(data.get('forzado', 0))
         
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Obtener el ID de la configuración activa
@@ -984,7 +1124,7 @@ def registro_ciclo():
 @app.route('/api/stats', methods=['GET'])
 def api_stats():
     """API JSON para proveer estadísticas a los gráficos interactivos"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
     # Conteo por tipo de sesión
@@ -1026,7 +1166,7 @@ def save_config():
         if descanso_largo_activo == 1 and ciclos_para_descanso_largo > 99:
             return jsonify({"status": "error", "message": "La cantidad de ciclos para descanso largo no puede ser mayor a 99"}), 400
         
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         # Consultar la configuración más reciente para ver si cambió
@@ -1064,7 +1204,7 @@ def save_config():
 def latest_config():
     """Endpoint para proveer la última configuración registrada en la base de datos"""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('SELECT tiempo_focus, tiempo_descanso_corto, tiempo_descanso_largo, descanso_largo_activo, ciclos_para_descanso_largo FROM configuraciones ORDER BY id DESC LIMIT 1')
         row = cursor.fetchone()
@@ -1150,7 +1290,7 @@ def run_mqtt_listener():
             ciclo_num = int(data.get('ciclo_num', 1))
             duracion_s = int(data.get('duracion_s', 0))
             
-            conn = sqlite3.connect(DB_PATH)
+            conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO sesiones_pomodoro (dispositivo, tipo_sesion, ciclo_num, duracion_s)
