@@ -56,6 +56,9 @@ def get_db_connection():
         except Exception as e:
             print("[DB] Fallo al conectar a Postgres. Usando SQLite local.", e)
             
+    import sqlite3
+    if os.environ.get('VERCEL') == '1':
+        return ConnectionWrapper(sqlite3.connect('/tmp/pomodoro.db'))
     return ConnectionWrapper(sqlite3.connect(DB_PATH))
 
 def is_postgres(conn):

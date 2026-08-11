@@ -2,7 +2,7 @@
   "files": {
     "server.py": "f90187d31344a7f388b05ee7d00cda65b7224c093f9a88cb7bc3832ae50af58b",
     "offline_queue.py": "feae53c27a1cd66626cfd1cb16e75a42da1872b68eb9320d81c7bab4b785f8c5",
-    "config.py": "79df0d6336ab921c05b5ac42425a53b384de40a7a9c30ed7dc5931fa6bc216de",
+    "config.py": "492aab71305f212da14ed1384dcf230f341d8595ce359ca9b199cba2a3184456",
     "hardware.py": "449bbac9180a0fe49aa0bb5409c835c6c37adc14297fe48162967cc01b70cf24",
     "pomodoro.py": "be4d286ebdbed1cde03a357b4f5241310834e6c9b7f8f4516888e056b5566d0f",
     "audio.py": "0d11a7dbc8b17c5f79c690ce1268bdb275499d9e21e4c40069ae5f4995a44bf3",
