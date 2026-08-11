@@ -1,8 +1,6 @@
 import time
 import machine
 import config
-import pomodoro
-import audio
 
 # ==============================================================================
 # SECUENCIA DE ARRANQUE Y OPTIMIZACIÓN DE MEMORIA RAM
@@ -22,6 +20,7 @@ gc.collect()
 reset_causa = machine.reset_cause()
 if reset_causa == machine.DEEPSLEEP_RESET:
     print("\n[RESET] Despertado por botón. Iniciando en modo STANDBY.")
+    import audio
     audio.play_sleep_out()
 else:
     print("\n[RESET] Inicio en frío detectado.")
@@ -29,13 +28,55 @@ else:
 # ==============================================================================
 # INICIALIZACIÓN DE SERVICIOS DE RED (HTTP & SYNC)
 # ==============================================================================
-# Cargamos el módulo de servidor HTTP. Conectamos a la red Wi-Fi utilizando
-# las credenciales cargadas. Si el dispositivo está en línea, sincronizamos la
-# configuración de los tiempos (Focus, Descansos, etc.) desde la base de datos
-# centralizada del servidor de la PC.
-import server
+# Para evitar errores de memoria (MBEDTLS_ERR_X509_ALLOC_FAILED) durante el apretón
+# de manos SSL (HTTPS) con GitHub, no debemos cargar módulos pesados como 'server' o
+# 'pomodoro' antes de la comprobación OTA. Realizamos una conexión Wi-Fi ligera primero.
 
-ip = server.connect_wifi()
+def conectar_wifi_ligero():
+    import network
+    import time
+    wlan = network.WLAN(network.STA_IF)
+    if wlan.isconnected():
+        return wlan.ifconfig()[0]
+        
+    wlan.active(True)
+    if not config.WIFI_SSID:
+        return "Offline"
+        
+    print("Conectando a WiFi (modo ligero) '{}'...".format(config.WIFI_SSID))
+    wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD)
+    
+    timeout = 10
+    start = time.time()
+    while not wlan.isconnected() and (time.time() - start) < timeout:
+        time.sleep_ms(500)
+        print(".", end="")
+    print("")
+    
+    if wlan.isconnected():
+        return wlan.ifconfig()[0]
+    return "Offline"
+
+# Intentar conexión ligera y correr OTA
+ip = conectar_wifi_ligero()
+if ip != "Offline":
+    try:
+        import ota
+        ota.check_and_perform_ota()
+    except Exception as e:
+        print("[OTA ERROR] Fallo en chequeo OTA:", e)
+
+# ------------------------------------------------------------------------------
+# Carga de módulos pesados tras liberar/comprobar actualizaciones
+# ------------------------------------------------------------------------------
+import server
+import pomodoro
+import audio
+
+# Si la conexión ligera falló, el método completo levantará el Portal Cautivo si es necesario
+if ip == "Offline":
+    ip = server.connect_wifi()
+
 if ip != "Offline":
     server.sincronizar_config_pc()
 

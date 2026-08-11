@@ -799,6 +799,36 @@ def index():
         ultimos_ciclos=ultimos_ciclos
     )
 
+def obtener_timestamp_corregido(data):
+    """
+    Calcula el timestamp real del evento si fue encolado sin sincronización horaria.
+    Si se proporciona un timestamp y sync es False, estima la hora exacta a la que ocurrió
+    restando la diferencia temporal (current_esp_time - timestamp) al tiempo actual del servidor.
+    Retorna el timestamp corregido en formato YYYY-MM-DD HH:MM:SS, o None si no hay timestamp.
+    """
+    timestamp_str = data.get('timestamp')
+    if not timestamp_str:
+        return None
+        
+    if data.get('sync') is False and data.get('current_esp_time'):
+        try:
+            fmt = "%Y-%m-%d %H:%M:%S"
+            event_dt = datetime.strptime(timestamp_str, fmt)
+            esp_current_dt = datetime.strptime(data['current_esp_time'], fmt)
+            
+            # Diferencia en segundos entre el momento del evento y el momento de envío
+            diff_seconds = (esp_current_dt - event_dt).total_seconds()
+            if diff_seconds < 0:
+                diff_seconds = 0
+                
+            # El timestamp real es el tiempo actual del servidor (UTC) menos esa diferencia
+            real_dt = datetime.utcnow() - timedelta(seconds=diff_seconds)
+            return real_dt.strftime(fmt)
+        except Exception as e:
+            print("[TIME CORRECTION ERROR] Error calculando tiempo corregido:", e)
+            
+    return timestamp_str
+
 @app.route('/datos', methods=['POST'])
 def recibir_datos():
     """Endpoint POST para recibir eventos desde la ESP32"""
@@ -822,14 +852,21 @@ def recibir_datos():
         config_row = cursor.fetchone()
         config_id = config_row[0] if config_row else None
         
-        cursor.execute('''
-            INSERT INTO sesiones_pomodoro (dispositivo, tipo_sesion, ciclo_num, duracion_s, configuracion_id, forzado)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (dispositivo, tipo_sesion, ciclo_num, duracion_s, config_id, forzado))
+        timestamp = obtener_timestamp_corregido(data)
+        if timestamp:
+            cursor.execute('''
+                INSERT INTO sesiones_pomodoro (timestamp, dispositivo, tipo_sesion, ciclo_num, duracion_s, configuracion_id, forzado)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (timestamp, dispositivo, tipo_sesion, ciclo_num, duracion_s, config_id, forzado))
+        else:
+            cursor.execute('''
+                INSERT INTO sesiones_pomodoro (dispositivo, tipo_sesion, ciclo_num, duracion_s, configuracion_id, forzado)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (dispositivo, tipo_sesion, ciclo_num, duracion_s, config_id, forzado))
         conn.commit()
         conn.close()
         
-        print(f"[BD FLASK] Sesión '{tipo_sesion}' guardada: Ciclo #{ciclo_num} ({duracion_s}s), Config ID: {config_id}, Forzado: {forzado}")
+        print(f"[BD FLASK] Sesión '{tipo_sesion}' guardada: Ciclo #{ciclo_num} ({duracion_s}s), Config ID: {config_id}, Forzado: {forzado}, Timestamp: {timestamp}")
         return jsonify({"status": "success", "message": "Sesión registrada en la BD"}), 200
     except Exception as e:
         print("[BD FLASK ERROR] Error procesando POST:", e)
@@ -852,14 +889,21 @@ def registro_pausa():
         config_row = cursor.fetchone()
         config_id = config_row[0] if config_row else None
         
-        cursor.execute('''
-            INSERT INTO pausas (fase, tiempo_transcurrido_s, porcentaje_transcurrido, duracion_pausa_s, configuracion_id)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (fase, tiempo_transcurrido_s, porcentaje_transcurrido, duracion_pausa_s, config_id))
+        timestamp = obtener_timestamp_corregido(data)
+        if timestamp:
+            cursor.execute('''
+                INSERT INTO pausas (timestamp, fase, tiempo_transcurrido_s, porcentaje_transcurrido, duracion_pausa_s, configuracion_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (timestamp, fase, tiempo_transcurrido_s, porcentaje_transcurrido, duracion_pausa_s, config_id))
+        else:
+            cursor.execute('''
+                INSERT INTO pausas (fase, tiempo_transcurrido_s, porcentaje_transcurrido, duracion_pausa_s, configuracion_id)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (fase, tiempo_transcurrido_s, porcentaje_transcurrido, duracion_pausa_s, config_id))
         conn.commit()
         conn.close()
         
-        print(f"[BD FLASK] Pausa registrada: Fase {fase}, Transcurrido {tiempo_transcurrido_s}s ({porcentaje_transcurrido}%), Duración {duracion_pausa_s}s, Config ID: {config_id}")
+        print(f"[BD FLASK] Pausa registrada: Fase {fase}, Transcurrido {tiempo_transcurrido_s}s ({porcentaje_transcurrido}%), Duración {duracion_pausa_s}s, Config ID: {config_id}, Timestamp: {timestamp}")
         return jsonify({"status": "success", "message": "Pausa registrada"}), 200
     except Exception as e:
         print("[BD FLASK ERROR] Error en registro_pausa:", e)
@@ -880,14 +924,21 @@ def registro_reaccion():
         config_row = cursor.fetchone()
         config_id = config_row[0] if config_row else None
         
-        cursor.execute('''
-            INSERT INTO tiempos_reaccion (tipo_alerta, duracion_alerta_s, configuracion_id)
-            VALUES (?, ?, ?)
-        ''', (tipo_alerta, duracion_alerta_s, config_id))
+        timestamp = obtener_timestamp_corregido(data)
+        if timestamp:
+            cursor.execute('''
+                INSERT INTO tiempos_reaccion (timestamp, tipo_alerta, duracion_alerta_s, configuracion_id)
+                VALUES (?, ?, ?, ?)
+            ''', (timestamp, tipo_alerta, duracion_alerta_s, config_id))
+        else:
+            cursor.execute('''
+                INSERT INTO tiempos_reaccion (tipo_alerta, duracion_alerta_s, configuracion_id)
+                VALUES (?, ?, ?)
+            ''', (tipo_alerta, duracion_alerta_s, config_id))
         conn.commit()
         conn.close()
         
-        print(f"[BD FLASK] Reacción registrada: Alerta {tipo_alerta}, Reacción {duracion_alerta_s}s, Config ID: {config_id}")
+        print(f"[BD FLASK] Reacción registrada: Alerta {tipo_alerta}, Reacción {duracion_alerta_s}s, Config ID: {config_id}, Timestamp: {timestamp}")
         return jsonify({"status": "success", "message": "Reacción registrada"}), 200
     except Exception as e:
         print("[BD FLASK ERROR] Error en registro_reaccion:", e)
@@ -910,14 +961,21 @@ def registro_ciclo():
         config_row = cursor.fetchone()
         config_id = config_row[0] if config_row else None
         
-        cursor.execute('''
-            INSERT INTO eventos_ciclos (fase, evento, tiempo_activo_s, configuracion_id, forzado)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (fase, evento, tiempo_activo_s, config_id, forzado))
+        timestamp = obtener_timestamp_corregido(data)
+        if timestamp:
+            cursor.execute('''
+                INSERT INTO eventos_ciclos (timestamp, fase, evento, tiempo_activo_s, configuracion_id, forzado)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (timestamp, fase, evento, tiempo_activo_s, config_id, forzado))
+        else:
+            cursor.execute('''
+                INSERT INTO eventos_ciclos (fase, evento, tiempo_activo_s, configuracion_id, forzado)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (fase, evento, tiempo_activo_s, config_id, forzado))
         conn.commit()
         conn.close()
         
-        print(f"[BD FLASK] Evento de ciclo registrado: Fase {fase}, Evento {evento}, Tiempo activo {tiempo_activo_s}s, Config ID: {config_id}, Forzado: {forzado}")
+        print(f"[BD FLASK] Evento de ciclo registrado: Fase {fase}, Evento {evento}, Tiempo activo {tiempo_activo_s}s, Config ID: {config_id}, Forzado: {forzado}, Timestamp: {timestamp}")
         return jsonify({"status": "success", "message": "Evento de ciclo registrado"}), 200
     except Exception as e:
         print("[BD FLASK ERROR] Error en registro_ciclo:", e)
@@ -1012,19 +1070,65 @@ def latest_config():
         row = cursor.fetchone()
         conn.close()
         
+        now_utc = datetime.utcnow()
+        # Enviar la tupla de tiempo UTC para que la ESP32 sincronice su RTC directamente
+        server_time = [now_utc.year, now_utc.month, now_utc.day, now_utc.weekday(), now_utc.hour, now_utc.minute, now_utc.second, 0]
+        
         if row:
             return jsonify({
                 "tiempo_focus": row[0],
                 "tiempo_descanso_corto": row[1],
                 "tiempo_descanso_largo": row[2],
                 "descanso_largo_activo": bool(row[3]),
-                "ciclos_para_descanso_largo": row[4]
+                "ciclos_para_descanso_largo": row[4],
+                "server_time": server_time
             }), 200
         else:
-            return jsonify({}), 200
+            return jsonify({
+                "server_time": server_time
+            }), 200
     except Exception as e:
         print("[BD FLASK ERROR] Fallo al leer última configuración:", e)
         return jsonify({"status": "error", "message": str(e)}), 400
+
+@app.route('/api/ota/manifest', methods=['GET'])
+def ota_manifest():
+    """Genera la lista de archivos Python y sus respectivos hashes SHA-256"""
+    try:
+        import os
+        import hashlib
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        files_manifest = {}
+        for filename in os.listdir(root_dir):
+            if filename.endswith('.py') and not filename.startswith('.'):
+                file_path = os.path.join(root_dir, filename)
+                if os.path.isfile(file_path):
+                    sha256_hash = hashlib.sha256()
+                    with open(file_path, "rb") as f:
+                        for byte_block in iter(lambda: f.read(4096), b""):
+                            sha256_hash.update(byte_block)
+                    files_manifest[filename] = sha256_hash.hexdigest()
+        return jsonify({"files": files_manifest}), 200
+    except Exception as e:
+        print("[OTA ERROR] Fallo al generar manifest:", e)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/ota/download/<filename>', methods=['GET'])
+def ota_download(filename):
+    """Descarga de manera segura un archivo Python del directorio raíz"""
+    try:
+        import os
+        if '/' in filename or '\\' in filename or filename.startswith('.'):
+            return "Acceso denegado", 403
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        file_path = os.path.join(root_dir, filename)
+        if not filename.endswith('.py') or not os.path.isfile(file_path):
+            return "Archivo no encontrado", 404
+        from flask import send_file
+        return send_file(file_path, as_attachment=True)
+    except Exception as e:
+        print(f"[OTA ERROR] Fallo al descargar archivo {filename}:", e)
+        return "Error interno del servidor", 500
 
 def run_mqtt_listener():
     """Hilo secundario para conectarse al Broker MQTT y recibir reportes de sesión de la ESP32"""

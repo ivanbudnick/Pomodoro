@@ -16,6 +16,12 @@ MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC_SESIONES = "pomodoro/sesiones"
 
+# --- CONFIGURACIÓN DE ACTUALIZACIONES OTA (GITHUB) ---
+OTA_GITHUB_USER = "ivanbudnick"   # Usuario de GitHub propietario del repositorio
+OTA_GITHUB_REPO = "Pomodoro"       # Nombre del repositorio
+OTA_GITHUB_BRANCH = "main"         # Rama a la que consultar (main/master)
+
+
 # --- CONFIGURACIÓN DE PINES (ESP32) ---
 # Se utiliza el GPIO 25 para el botón único para evitar los ruidos
 # analógicos causados por el oscilador del cristal de 32kHz (presente en GPIO 32/33 en ESP-32S).
@@ -86,7 +92,10 @@ def guardar_a_disco():
                 "tiempo_descanso_largo": tiempo_descanso_largo_s,
                 "descanso_largo_activo": descanso_largo_activo,
                 "ciclos_para_descanso_largo": ciclos_para_descanso_largo,
-                "flask_server_url": FLASK_SERVER_URL
+                "flask_server_url": FLASK_SERVER_URL,
+                "ota_github_user": OTA_GITHUB_USER,
+                "ota_github_repo": OTA_GITHUB_REPO,
+                "ota_github_branch": OTA_GITHUB_BRANCH
             }, f)
         print("[CONFIG] Configuración guardada en config.json local.")
     except Exception as e:
@@ -98,7 +107,7 @@ def cargar_de_disco():
     Si el archivo no existe (por ejemplo, en el primer encendido), se mantiene
     con los valores predeterminados definidos arriba.
     """
-    global tiempo_focus_s, tiempo_descanso_corto_s, tiempo_descanso_largo_s, descanso_largo_activo, ciclos_para_descanso_largo, FLASK_SERVER_URL
+    global tiempo_focus_s, tiempo_descanso_corto_s, tiempo_descanso_largo_s, descanso_largo_activo, ciclos_para_descanso_largo, FLASK_SERVER_URL, OTA_GITHUB_USER, OTA_GITHUB_REPO, OTA_GITHUB_BRANCH
     try:
         import os
         import ujson as json
@@ -116,6 +125,9 @@ def cargar_de_disco():
             descanso_largo_activo = bool(data.get("descanso_largo_activo", descanso_largo_activo))
             ciclos_para_descanso_largo = int(data.get("ciclos_para_descanso_largo", ciclos_para_descanso_largo))
             FLASK_SERVER_URL = data.get("flask_server_url", FLASK_SERVER_URL)
+            OTA_GITHUB_USER = data.get("ota_github_user", OTA_GITHUB_USER)
+            OTA_GITHUB_REPO = data.get("ota_github_repo", OTA_GITHUB_REPO)
+            OTA_GITHUB_BRANCH = data.get("ota_github_branch", OTA_GITHUB_BRANCH)
         print("[CONFIG SUCCESS] Configuración cargada desde config.json local.")
     except Exception as e:
         print("[CONFIG ERROR] Fallo al leer config.json local:", e)

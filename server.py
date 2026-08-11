@@ -440,13 +440,29 @@ def descubrir_servidor_pc():
         
     return False
 
+def sincronizar_hora_ntp():
+    """Intenta sincronizar la hora usando un servidor NTP de internet"""
+    try:
+        import ntptime
+        print("[NTP] Sincronizando hora con pool.ntp.org...")
+        ntptime.host = "pool.ntp.org"
+        ntptime.settime()
+        import offline_queue
+        offline_queue.rtc_sincronizado = True
+        print("[NTP SUCCESS] Reloj RTC sincronizado mediante NTP.")
+        return True
+    except Exception as e:
+        print("[NTP WARNING] No se pudo sincronizar hora por NTP:", e)
+        return False
+
 def sincronizar_config_pc():
     """Descarga e impone la configuración horaria de la Base de Datos centralizada (Flask) en la PC"""
     # Intentar descubrir el servidor automáticamente antes de sincronizar
     descubrir_servidor_pc()
     
     if urequests is None:
-        print("[SYNC WARNING] Modulo urequests no disponible.")
+        print("[SYNC WARNING] Modulo urequests no disponible. Intentando NTP...")
+        sincronizar_hora_ntp()
         return
     try:
         url = config.FLASK_SERVER_URL.replace("/datos", "/api/latest_config")
@@ -462,11 +478,28 @@ def sincronizar_config_pc():
                 config.ciclos_para_descanso_largo = int(data.get("ciclos_para_descanso_largo", config.ciclos_para_descanso_largo))
                 config.guardar_a_disco()
                 print("[SYNC SUCCESS] Configuración sincronizada con la base de datos de la PC.")
+                
+                # Sincronizar el RTC de la ESP32 si viene en el JSON
+                server_time = data.get("server_time")
+                if server_time:
+                    try:
+                        import machine
+                        import offline_queue
+                        rtc = machine.RTC()
+                        rtc.datetime(tuple(server_time))
+                        offline_queue.rtc_sincronizado = True
+                        print("[SYNC SUCCESS] Reloj RTC sincronizado con el servidor Flask.")
+                    except Exception as rtc_err:
+                        print("[SYNC WARNING] Fallo al establecer hora RTC desde Flask:", rtc_err)
             else:
                 print("[SYNC INFO] No hay configuraciones en la BD de la PC aún.")
+        else:
+            print("[SYNC WARNING] Servidor Flask no disponible. Intentando NTP...")
+            sincronizar_hora_ntp()
         res.close()
     except Exception as e:
-        print("[SYNC WARNING] No se pudo conectar a la PC para sincronizar:", e)
+        print("[SYNC WARNING] No se pudo conectar a la PC para sincronizar ({}). Intentando NTP...".format(e))
+        sincronizar_hora_ntp()
     finally:
         import gc
         gc.collect()
@@ -495,20 +528,20 @@ def enviar_config_a_pc():
         gc.collect()
 
 def _enviar_reporte_pausa_thread(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s):
-    if urequests is None:
-        return
     try:
+        import offline_queue
         url = config.FLASK_SERVER_URL.replace("/datos", "/api/registro_pausa")
         payload = {
             "fase": fase,
             "tiempo_transcurrido_s": tiempo_transcurrido_s,
             "porcentaje_transcurrido": porcentaje,
-            "duracion_pausa_s": duracion_pausa_s
+            "duracion_pausa_s": duracion_pausa_s,
+            "timestamp": offline_queue.obtener_timestamp(),
+            "sync": offline_queue.rtc_sincronizado
         }
-        res = urequests.post(url, json=payload, timeout=3)
-        res.close()
+        offline_queue.enviar_post_con_cola(url, payload)
     except Exception as e:
-        print("[REPORT PAUSE WARNING] No se pudo enviar reporte de pausa:", e)
+        print("[REPORT PAUSE WARNING] No se pudo enviar reporte de pausa con cola:", e)
     finally:
         import gc
         gc.collect()
@@ -522,18 +555,18 @@ def enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa
         _enviar_reporte_pausa_thread(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s)
 
 def _enviar_reporte_reaccion_thread(tipo_alerta, duracion_alerta_s):
-    if urequests is None:
-        return
     try:
+        import offline_queue
         url = config.FLASK_SERVER_URL.replace("/datos", "/api/registro_reaccion")
         payload = {
             "tipo_alerta": tipo_alerta,
-            "duracion_alerta_s": duracion_alerta_s
+            "duracion_alerta_s": duracion_alerta_s,
+            "timestamp": offline_queue.obtener_timestamp(),
+            "sync": offline_queue.rtc_sincronizado
         }
-        res = urequests.post(url, json=payload, timeout=3)
-        res.close()
+        offline_queue.enviar_post_con_cola(url, payload)
     except Exception as e:
-        print("[REPORT REACTION WARNING] No se pudo enviar reporte de reacción:", e)
+        print("[REPORT REACTION WARNING] No se pudo enviar reporte de reacción con cola:", e)
     finally:
         import gc
         gc.collect()
@@ -547,20 +580,20 @@ def enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s):
         _enviar_reporte_reaccion_thread(tipo_alerta, duracion_alerta_s)
 
 def _enviar_reporte_ciclo_thread(fase, evento, tiempo_activo_s, forzado=0):
-    if urequests is None:
-        return
     try:
+        import offline_queue
         url = config.FLASK_SERVER_URL.replace("/datos", "/api/registro_ciclo")
         payload = {
             "fase": fase,
             "evento": evento,
             "tiempo_activo_s": tiempo_activo_s,
-            "forzado": forzado
+            "forzado": forzado,
+            "timestamp": offline_queue.obtener_timestamp(),
+            "sync": offline_queue.rtc_sincronizado
         }
-        res = urequests.post(url, json=payload, timeout=3)
-        res.close()
+        offline_queue.enviar_post_con_cola(url, payload)
     except Exception as e:
-        print("[REPORT CYCLE WARNING] No se pudo enviar reporte de ciclo:", e)
+        print("[REPORT CYCLE WARNING] No se pudo enviar reporte de ciclo con cola:", e)
     finally:
         import gc
         gc.collect()

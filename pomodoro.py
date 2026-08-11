@@ -131,32 +131,30 @@ def enviar_reporte_mqtt(tipo_sesion, ciclo_num, duracion_s):
 def _enviar_reporte_thread(tipo_sesion, ciclo_num, duracion_s, forzado=0):
     """
     Subfunción interna ejecutada en segundo plano para realizar el envío.
-    Intenta primero HTTP (al ser IP local, es instantáneo y evita DNS lookup).
-    Si falla, intenta MQTT como fallback.
+    Intenta primero HTTP con cola local (en caso de fallar, encola en flash).
+    Si falla, intenta MQTT como fallback secundario.
     """
     try:
-        # 1. Intentar HTTP POST local (IP directa, sin DNS)
-        if urequests is not None:
-            try:
-                payload = {
-                    "dispositivo": "ESP32_Pomodoro",
-                    "evento": "sesion_completada",
-                    "tipo_sesion": tipo_sesion,
-                    "ciclo_num": ciclo_num,
-                    "duracion_s": duracion_s,
-                    "forzado": forzado
-                }
-                res = urequests.post(config.FLASK_SERVER_URL, json=payload, timeout=3)
-                print("[FLASK REPORT] Sesión '{}' (#{}) enviada a la PC. HTTP: {}, Forzado: {}".format(tipo_sesion, ciclo_num, res.status_code, forzado))
-                res.close()
-                return  # Éxito, salir de la función
-            except Exception as e:
-                print("[FLASK REPORT WARNING] No se pudo enviar por HTTP local:", e)
+        import offline_queue
+        payload = {
+            "dispositivo": "ESP32_Pomodoro",
+            "evento": "sesion_completada",
+            "tipo_sesion": tipo_sesion,
+            "ciclo_num": ciclo_num,
+            "duracion_s": duracion_s,
+            "forzado": forzado,
+            "timestamp": offline_queue.obtener_timestamp(),
+            "sync": offline_queue.rtc_sincronizado
+        }
+        exito = offline_queue.enviar_post_con_cola(config.FLASK_SERVER_URL, payload)
+        if exito:
+            print("[FLASK REPORT] Sesión '{}' (#{}) enviada a la PC (y cola vaciada). Forzado: {}".format(tipo_sesion, ciclo_num, forzado))
         else:
-            print("[FLASK REPORT WARNING] Modulo urequests no disponible.")
-            
-        # 2. Fallback: Intentar MQTT (requiere DNS lookup de broker.hivemq.com)
-        enviar_reporte_mqtt(tipo_sesion, ciclo_num, duracion_s)
+            print("[FLASK REPORT WARNING] No se pudo enviar por HTTP local. Encolado en ESP. Intentando fallback MQTT...")
+            # 2. Fallback: Intentar MQTT (requiere DNS lookup de broker.hivemq.com)
+            enviar_reporte_mqtt(tipo_sesion, ciclo_num, duracion_s)
+    except Exception as e:
+        print("[FLASK REPORT ERROR] Error en reporte con cola:", e)
     finally:
         import gc
         gc.collect()
