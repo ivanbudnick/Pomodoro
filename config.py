@@ -11,7 +11,7 @@
 # --- CONFIGURACIÓN DE WIFI Y SERVIDOR FLASK ---
 WIFI_SSID = ""            # Nombre de la red WiFi (se carga de wifi.json)
 WIFI_PASSWORD = ""        # Contraseña de la red WiFi (se carga de wifi.json)
-FLASK_SERVER_URL = "http://192.168.0.139:5001/datos"  # Endpoint REST en la PC
+FLASK_SERVER_URL = "https://pomodoro-mocha-one.vercel.app/"  # Endpoint REST en la PC
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC_SESIONES = "pomodoro/sesiones"

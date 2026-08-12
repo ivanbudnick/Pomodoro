@@ -195,7 +195,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pomodoro esp32 - Panel de estadísticas</title>
+    <title>Pomodoro esp32 - Panel de Control</title>
     <!-- Chart.js para gráficos interactivos -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -232,13 +232,106 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             color: var(--text);
             font-family: var(--font);
             min-height: 100vh;
-            padding: 40px 24px;
+            display: flex;
         }
 
-        .container {
+        /* SIDEBAR */
+        .sidebar {
+            width: 260px;
+            background: rgba(10, 14, 23, 0.5);
+            border-right: 1px solid var(--border);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            display: flex;
+            flex-direction: column;
+            padding: 40px 20px;
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 100;
+        }
+
+        .sidebar-brand {
+            margin-bottom: 40px;
+        }
+
+        .sidebar-brand h2 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: -0.5px;
+            margin-top: 4px;
+        }
+
+        .sidebar-menu {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+
+        .menu-item svg {
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .menu-item:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .menu-item:hover svg {
+            opacity: 1;
+        }
+
+        .menu-item.active {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .menu-item.active svg {
+            opacity: 1;
+        }
+
+        /* MAIN CONTENT */
+        .main-content {
+            margin-left: 260px;
+            flex: 1;
+            padding: 40px 48px;
+            max-width: calc(100vw - 260px);
+            box-sizing: border-box;
+        }
+
+        .tab-view {
+            display: none;
             width: 100%;
-            max-width: 1300px;
-            margin: 0 auto;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        .tab-view.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .header {
@@ -362,6 +455,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             padding: 24px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
             overflow-x: auto;
+            margin-bottom: 40px;
         }
 
         .table-card h3 {
@@ -426,279 +520,566 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             color: #52be90;
             border: 1px solid rgba(82, 190, 144, 0.2);
         }
+
+        /* ESTILOS CONFIGURACIÓN (TIPO DASHBOARD.HTML) */
+        .config-grid {
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 32px;
+            margin-top: 30px;
+            margin-bottom: 40px;
+        }
+        @media (min-width: 1024px) {
+            .config-grid { grid-template-columns: repeat(3, 1fr); gap: 40px; }
+        }
+        .config-column { display: flex; flex-direction: column; align-items: center; }
+        .column-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .status-dot.focus { background-color: var(--focus); }
+        .status-dot.short { background-color: var(--descanso-corto); }
+        .status-dot.long { background-color: var(--descanso-largo); }
+        .config-column h2 { font-size: 0.95rem; font-weight: 600; color: #fff; }
+        .time-picker { width: 100%; max-width: 280px; }
+        .time-picker-grid { display: grid; grid-template-columns: 1fr auto 1fr; justify-items: center; align-items: center; }
+        .picker-label { font-size: 0.75rem; color: var(--muted); font-weight: 500; margin-bottom: 6px; }
+        .picker-separator-label { width: 16px; }
+        .picker-box-wrapper { grid-column: span 3; width: 100%; }
+        .picker-box {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.015);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 16px 20px;
+            transition: border-color 0.3s, background-color 0.3s;
+        }
+        .picker-box:focus-within { border-color: rgba(255, 255, 255, 0.15); background: rgba(255, 255, 255, 0.03); }
+        .digit-input {
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 3.5rem;
+            font-weight: 300;
+            width: 2.2ch;
+            text-align: center;
+            outline: none;
+            font-family: inherit;
+            font-variant-numeric: tabular-nums;
+            -moz-appearance: textfield;
+        }
+        .digit-input::-webkit-outer-spin-button, .digit-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .picker-colon { font-size: 3rem; color: rgba(255, 255, 255, 0.15); font-weight: 300; margin: 0 2px; line-height: 1; transform: translateY(-4px); }
+        .long-break-header-row { display: flex; align-items: center; justify-content: space-between; width: 100%; max-width: 280px; margin-bottom: 16px; }
+        .long-break-header-row .column-header { margin-bottom: 0; }
+        .switch { position: relative; display: inline-block; width: 42px; height: 22px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(255, 255, 255, 0.06);
+            transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 22px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: #f3f4f6;
+            transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--descanso-largo); }
+        input:checked + .slider:before { transform: translateX(20px); background-color: #06080f; }
+        .cycles-container { width: 100%; max-width: 280px; display: flex; align-items: center; justify-content: space-between; margin-top: 20px; transition: opacity 0.3s; }
+        .cycles-label { font-size: 0.8rem; color: var(--muted); }
+        .cycles-input-box { background: rgba(255, 255, 255, 0.015); border: 1px solid var(--border); border-radius: 10px; padding: 6px 12px; width: 64px; }
+        .cycles-input-box input { width: 100%; background: transparent; border: none; color: #fff; font-family: inherit; font-size: 0.9rem; font-weight: 500; text-align: center; outline: none; }
+        .action-row { width: 100%; display: flex; justify-content: center; margin-top: 20px; }
+        .btn-save {
+            background: #fff;
+            color: #06080f;
+            border: none;
+            border-radius: 14px;
+            padding: 14px 40px;
+            font-family: inherit;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: transform 0.2s, background-color 0.2s;
+        }
+        .btn-save:hover { background-color: #f3f4f6; transform: translateY(-2px); }
+        .btn-save:active { transform: translateY(1px); }
+
+        .gesture-legend {
+            background: rgba(10, 14, 23, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 20px;
+            width: 100%;
+            max-width: 800px;
+            margin: 40px auto 0 auto;
+        }
+        .legend-header { font-size: 0.8rem; font-weight: 600; color: #fff; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .legend-info-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 14px;
+            height: 14px;
+            border: 1.5px solid var(--muted);
+            border-radius: 50%;
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: var(--muted);
+        }
+        .legend-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .legend-item { display: flex; flex-direction: column; gap: 2px; border-left: 2px solid rgba(255, 255, 255, 0.08); padding-left: 10px; }
+        .legend-cmd { font-size: 0.75rem; font-weight: 600; color: #fff; }
+        .legend-desc { font-size: 0.7rem; color: var(--muted); line-height: 1.3; }
+
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 1000;
+            background: rgba(82, 190, 144, 0.08);
+            border: 1px solid rgba(82, 190, 144, 0.2);
+            color: #52be90;
+            font-size: 0.8rem;
+            font-weight: 500;
+            padding: 12px 20px;
+            border-radius: 12px;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            opacity: 0;
+            transform: translateY(20px) scale(0.95);
+            transition: all 0.3s;
+            pointer-events: none;
+        }
+        .toast.show { opacity: 1; transform: translateY(0) scale(1); }
+
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column;
+            }
+            .sidebar {
+                width: 100%;
+                height: auto;
+                position: relative;
+                padding: 20px;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+            }
+            .sidebar-brand {
+                margin-bottom: 15px;
+                text-align: center;
+            }
+            .sidebar-menu {
+                flex-direction: row;
+                justify-content: center;
+                gap: 15px;
+            }
+            .main-content {
+                margin-left: 0;
+                padding: 24px;
+                max-width: 100vw;
+            }
+            .legend-list {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <span class="brand-tag">Estadísticas pomodoro</span>
-            <h1>Panel de rendimiento</h1>
-            <p class="subtitle">Monitoreo de sesiones y métricas de productividad en tiempo real</p>
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+        <div class="sidebar-brand">
+            <span class="brand-tag">pomodoro esp32</span>
+            <h2>Control Panel</h2>
         </div>
-
-        <!-- TARJETAS DE ESTADÍSTICAS -->
-        <div class="stats-grid">
-            <div class="stat-card red">
-                <div class="stat-value">{{ total_focus }}</div>
-                <div class="stat-label">Sesiones de enfoque</div>
-            </div>
-            <div class="stat-card blue">
-                <div class="stat-value">{{ total_minutos_focus }}m</div>
-                <div class="stat-label">Tiempo total de enfoque</div>
-            </div>
-            <div class="stat-card gold">
-                <div class="stat-value">{{ racha_actual }}</div>
-                <div class="stat-label">Racha actual (días)</div>
-            </div>
-            <div class="stat-card green">
-                <div class="stat-value">{{ racha_maxima }}</div>
-                <div class="stat-label">Mejor racha (días)</div>
-            </div>
+        <div class="sidebar-menu">
+            <a class="menu-item active" id="btn-metricas" onclick="switchTab('metricas')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+                Métricas
+            </a>
+            <a class="menu-item" id="btn-config" onclick="switchTab('config')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                Configuración
+            </a>
         </div>
+    </div>
 
-        <!-- CONFIGURACIÓN DE TIEMPOS (UNIFICADA) -->
-        <div class="table-card" style="margin-bottom: 40px;">
-            <h3 style="margin-bottom: 8px; font-size: 1.1rem; font-weight: 600; color: #ffffff;">Configuración de Tiempos Pomodoro</h3>
-            <p style="font-size: 0.8rem; color: var(--muted); margin-bottom: 20px;">Ajusta los intervalos de tiempo en minutos. Los cambios se guardarán en Supabase y se sincronizarán con el ESP32.</p>
-            <form id="configForm" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; align-items: end;">
-                <div>
-                    <label style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 8px; letter-spacing: 0.5px;">TIEMPO DE FOCUS (MINUTOS)</label>
-                    <input type="number" id="inputFocus" name="tiempo_focus" min="1" max="180" style="width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; color: white; font-family: var(--font); font-size: 0.9rem;" required>
-                </div>
-                <div>
-                    <label style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 8px; letter-spacing: 0.5px;">DESCANSO CORTO (MINUTOS)</label>
-                    <input type="number" id="inputDescansoCorto" name="tiempo_descanso_corto" min="1" max="60" style="width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; color: white; font-family: var(--font); font-size: 0.9rem;" required>
-                </div>
-                <div>
-                    <label style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 8px; letter-spacing: 0.5px;">DESCANSO LARGO (MINUTOS)</label>
-                    <input type="number" id="inputDescansoLargo" name="tiempo_descanso_largo" min="1" max="60" style="width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; color: white; font-family: var(--font); font-size: 0.9rem;" required>
-                </div>
-                <div>
-                    <label style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-bottom: 8px; letter-spacing: 0.5px;">CANTIDAD CICLOS ENFOQUE</label>
-                    <input type="number" id="inputCiclosLargo" name="ciclos_para_descanso_largo" min="1" max="12" style="width: 100%; padding: 10px 14px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; color: white; font-family: var(--font); font-size: 0.9rem;" required>
-                </div>
-                <div style="grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding-top: 6px;">
-                    <input type="checkbox" id="inputDescansoLargoActivo" name="descanso_largo_activo" style="width: 16px; height: 16px; accent-color: var(--focus); cursor: pointer;">
-                    <label for="inputDescansoLargoActivo" style="font-size: 0.85rem; color: #cbd5e1; user-select: none; cursor: pointer;">Activar descanso largo automático</label>
-                </div>
-                <div style="grid-column: 1 / -1; display: flex; align-items: center; gap: 15px; margin-top: 10px;">
-                    <button type="submit" style="background: var(--focus); border: none; border-radius: 10px; color: white; padding: 11px 24px; font-weight: 600; font-family: var(--font); font-size: 0.9rem; cursor: pointer; transition: background-color 0.2s, transform 0.1s;" onmouseover="this.style.backgroundColor='#cf4e4e'" onmouseout="this.style.backgroundColor='var(--focus)'" onmousedown="this.style.transform='scale(0.98)'" onmouseup="this.style.transform='scale(1)'">Guardar cambios</button>
-                    <span id="saveStatus" style="font-size: 0.85rem; font-weight: 500;"></span>
-                </div>
-            </form>
-        </div>
-
-        <!-- SECCIÓN DE GRÁFICOS -->
-        <div class="charts-grid">
-            <div class="chart-card">
-                <h3>Minutos de enfoque por día</h3>
-                <canvas id="chartDias" height="180"></canvas>
+    <!-- MAIN CONTENT -->
+    <div class="main-content">
+        <!-- VISTA DE MÉTRICAS -->
+        <div id="tab-metricas" class="tab-view active">
+            <div class="header">
+                <span class="brand-tag">Estadísticas pomodoro</span>
+                <h1>Panel de rendimiento</h1>
+                <p class="subtitle">Monitoreo de sesiones y métricas de productividad en tiempo real</p>
             </div>
-            <div class="chart-card">
-                <h3>Distribución de sesiones</h3>
-                <canvas id="chartTipos" height="180"></canvas>
-            </div>
-        </div>
 
-        <!-- TABLA DE HISTORIAL -->
-        <div class="table-card">
-            <h3>Historial de sesiones</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Id</th>
-                        <th>Fecha y hora</th>
-                        <th>Tipo de sesión</th>
-                        <th>Ciclo</th>
-                        <th>Duración</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for s in sesiones %}
-                    <tr>
-                        <td>#{{ s[0] }}</td>
-                        <td>{{ s[1] }}</td>
-                        <td>
-                            {% if s[3] == 'focus' %}
-                                <span class="badge focus">Enfoque</span>
-                            {% elif s[3] == 'descanso_largo' %}
-                                <span class="badge descanso_largo">Descanso largo</span>
+            <!-- TARJETAS DE ESTADÍSTICAS -->
+            <div class="stats-grid">
+                <div class="stat-card red">
+                    <div class="stat-value">{{ total_focus }}</div>
+                    <div class="stat-label">Sesiones de enfoque</div>
+                </div>
+                <div class="stat-card blue">
+                    <div class="stat-value">{{ total_minutos_focus }}m</div>
+                    <div class="stat-label">Tiempo total de enfoque</div>
+                </div>
+                <div class="stat-card gold">
+                    <div class="stat-value">{{ racha_actual }}</div>
+                    <div class="stat-label">Racha actual (días)</div>
+                </div>
+                <div class="stat-card green">
+                    <div class="stat-value">{{ racha_maxima }}</div>
+                    <div class="stat-label">Mejor racha (días)</div>
+                </div>
+            </div>
+
+            <!-- SECCIÓN DE GRÁFICOS -->
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <h3>Minutos de enfoque por día</h3>
+                    <canvas id="chartDias" height="180"></canvas>
+                </div>
+                <div class="chart-card">
+                    <h3>Distribución de sesiones</h3>
+                    <canvas id="chartTipos" height="180"></canvas>
+                </div>
+            </div>
+
+            <!-- TABLA DE HISTORIAL -->
+            <div class="table-card">
+                <h3>Historial de sesiones</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Id</th>
+                            <th>Fecha y hora</th>
+                            <th>Tipo de sesión</th>
+                            <th>Ciclo</th>
+                            <th>Duración</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for s in sesiones %}
+                        <tr>
+                            <td>#{{ s[0] }}</td>
+                            <td>{{ s[1] }}</td>
+                            <td>
+                                {% if s[3] == 'focus' %}
+                                    <span class="badge focus">Enfoque</span>
+                                {% elif s[3] == 'descanso_largo' %}
+                                    <span class="badge descanso_largo">Descanso largo</span>
+                                {% else %}
+                                    <span class="badge descanso_corto">Descanso corto</span>
+                                {% endif %}
+                            </td>
+                            <td>Ciclo #{{ s[4] }}</td>
+                            <td>
+                                {{ s[5] }} seg
+                                {% if s[6] == 1 %}
+                                    <span style="font-size: 0.75rem; color: #fb923c; font-weight: 500; margin-left: 4px;">(Forzado)</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" style="text-align: center; color: var(--muted); padding: 32px;">
+                                No hay sesiones registradas aún. Completa una sesión de enfoque en tu dispositivo.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- TARJETAS DE MÉTRICAS AVANZADAS -->
+            <h2 style="font-size: 1.25rem; margin-top: 40px; margin-bottom: 20px; font-weight: 600; color: #ffffff;">Métricas Avanzadas (Analítica)</h2>
+            <div class="stats-grid">
+                <div class="stat-card red">
+                    <div class="stat-value">{{ avg_reaccion_focus }}s</div>
+                    <div class="stat-label">Reac. Post-Focus Promedio</div>
+                </div>
+                <div class="stat-card blue">
+                    <div class="stat-value">{{ avg_reaccion_corto }}s</div>
+                    <div class="stat-label">Reac. Post-D. Corto Promedio</div>
+                </div>
+                <div class="stat-card green">
+                    <div class="stat-value">{{ avg_reaccion_largo }}s</div>
+                    <div class="stat-label">Reac. Post-D. Largo Promedio</div>
+                </div>
+                <div class="stat-card gold">
+                    <div class="stat-value">{{ total_pausas }} <span style="font-size: 0.9rem; color: var(--muted); font-weight: 400;">({{ avg_duracion_pausa }}s avg)</span></div>
+                    <div class="stat-label">Pausas registradas</div>
+                </div>
+                <div class="stat-card red" style="background: rgba(244, 63, 94, 0.015); border-color: rgba(244, 63, 94, 0.15);">
+                    <div class="stat-value">{{ total_forzados }}</div>
+                    <div class="stat-label">Avances Forzados</div>
+                </div>
+            </div>
+
+            <!-- DETALLE DE TELEMETRÍA -->
+            <div class="charts-grid" style="margin-top: 40px; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));">
+                <!-- TABLA DE PAUSAS -->
+                <div class="table-card">
+                    <h3>Detalle de Pausas Recientes</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Fase</th>
+                                <th>Avance al pausar</th>
+                                <th>Pausa</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in ultimas_pausas %}
+                            <tr>
+                                <td>{{ p[1].split(' ')[1] if ' ' in p[1] else p[1] }}</td>
+                                <td>
+                                    {% if p[2] == 'FOCUS' %}
+                                        <span class="badge focus">Enfoque</span>
+                                    {% elif p[2] == 'DESCANSO_CORTO' %}
+                                        <span class="badge descanso_corto">D. Corto</span>
+                                    {% else %}
+                                        <span class="badge descanso_largo">D. Largo</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ p[3] }}s ({{ "%.1f"|format(p[4]) }}%)</td>
+                                <td style="color: #f43f5e; font-weight: 600;">{{ p[5] }}s</td>
+                            </tr>
                             {% else %}
-                                <span class="badge descanso_corto">Descanso corto</span>
-                            {% endif %}
-                        </td>
-                        <td>Ciclo #{{ s[4] }}</td>
-                        <td>
-                            {{ s[5] }} seg
-                            {% if s[6] == 1 %}
-                                <span style="font-size: 0.75rem; color: #fb923c; font-weight: 500; margin-left: 4px;">(Forzado)</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="5" style="text-align: center; color: var(--muted); padding: 32px;">
-                            No hay sesiones registradas aún. Completa una sesión de enfoque en tu dispositivo.
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                            <tr>
+                                <td colspan="4" style="text-align: center; color: var(--muted); padding: 16px;">
+                                    Sin pausas registradas.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- TABLA DE TIEMPOS DE REACCIÓN -->
+                <div class="table-card">
+                    <h3>Detalle de Reacciones a Alertas</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Tipo de Alerta</th>
+                                <th>Reacción</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in ultimas_reacciones %}
+                            <tr>
+                                <td>{{ r[1].split(' ')[1] if ' ' in r[1] else r[1] }}</td>
+                                <td>
+                                    {% if r[2] == 'POST_FOCUS' %}
+                                        <span class="badge focus">Post-Focus</span>
+                                    {% elif r[2] == 'POST_DESCANSO_CORTO' %}
+                                        <span class="badge descanso_corto">Post-D. Corto</span>
+                                    {% else %}
+                                        <span class="badge descanso_largo">Post-D. Largo</span>
+                                    {% endif %}
+                                </td>
+                                <td style="color: #fbbf24; font-weight: 600;">{{ "%.2f"|format(r[3]) }}s</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="3" style="text-align: center; color: var(--muted); padding: 16px;">
+                                    Sin tiempos de reacción.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- TABLA DE EVENTOS DE CICLO -->
+                <div class="table-card" style="grid-column: 1 / -1;">
+                    <h3>Bitácora de Ciclos Recientes</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Fase</th>
+                                <th>Evento</th>
+                                <th>Duración Activa</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for c in ultimos_ciclos %}
+                            <tr>
+                                <td>{{ c[1] }}</td>
+                                <td>
+                                    {% if c[2] == 'FOCUS' %}
+                                        <span class="badge focus">Enfoque</span>
+                                    {% elif c[2] == 'DESCANSO_CORTO' %}
+                                        <span class="badge descanso_corto">D. Corto</span>
+                                    {% else %}
+                                        <span class="badge descanso_largo">D. Largo</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if c[3] == 'INICIADO' %}
+                                        <span style="color: #60a5fa; font-weight: 500;">Iniciado</span>
+                                    {% elif c[3] == 'COMPLETADO' %}
+                                        <span style="color: #34d399; font-weight: 600;">Completado</span>
+                                    {% elif c[3] == 'FORZADO' %}
+                                        <span style="color: #fb923c; font-weight: 600;">Avance Forzado</span>
+                                    {% else %}
+                                        <span style="color: #f87171; font-weight: 500;">Cancelado (Reset)</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ c[4] }}s</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4" style="text-align: center; color: var(--muted); padding: 16px;">
+                                    Sin eventos de ciclos registrados.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
-        <!-- TARJETAS DE MÉTRICAS AVANZADAS -->
-        <h2 style="font-size: 1.25rem; margin-top: 40px; margin-bottom: 20px; font-weight: 600; color: #ffffff;">Métricas Avanzadas (Analítica)</h2>
-        <div class="stats-grid">
-            <div class="stat-card red">
-                <div class="stat-value">{{ avg_reaccion_focus }}s</div>
-                <div class="stat-label">Reac. Post-Focus Promedio</div>
-            </div>
-            <div class="stat-card blue">
-                <div class="stat-value">{{ avg_reaccion_corto }}s</div>
-                <div class="stat-label">Reac. Post-D. Corto Promedio</div>
-            </div>
-            <div class="stat-card green">
-                <div class="stat-value">{{ avg_reaccion_largo }}s</div>
-                <div class="stat-label">Reac. Post-D. Largo Promedio</div>
-            </div>
-            <div class="stat-card gold">
-                <div class="stat-value">{{ total_pausas }} <span style="font-size: 0.9rem; color: var(--muted); font-weight: 400;">({{ avg_duracion_pausa }}s avg)</span></div>
-                <div class="stat-label">Pausas registradas</div>
-            </div>
-            <div class="stat-card red" style="background: rgba(244, 63, 94, 0.015); border-color: rgba(244, 63, 94, 0.15);">
-                <div class="stat-value">{{ total_forzados }}</div>
-                <div class="stat-label">Avances Forzados</div>
-            </div>
-        </div>
-
-        <!-- DETALLE DE TELEMETRÍA -->
-        <div class="charts-grid" style="margin-top: 40px; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));">
-            <!-- TABLA DE PAUSAS -->
-            <div class="table-card">
-                <h3>Detalle de Pausas Recientes</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>Fase</th>
-                            <th>Avance al pausar</th>
-                            <th>Pausa</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for p in ultimas_pausas %}
-                        <tr>
-                            <td>{{ p[1].split(' ')[1] if ' ' in p[1] else p[1] }}</td>
-                            <td>
-                                {% if p[2] == 'FOCUS' %}
-                                    <span class="badge focus">Enfoque</span>
-                                {% elif p[2] == 'DESCANSO_CORTO' %}
-                                    <span class="badge descanso_corto">D. Corto</span>
-                                {% else %}
-                                    <span class="badge descanso_largo">D. Largo</span>
-                                {% endif %}
-                            </td>
-                            <td>{{ p[3] }}s ({{ "%.1f"|format(p[4]) }}%)</td>
-                            <td style="color: #f43f5e; font-weight: 600;">{{ p[5] }}s</td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="4" style="text-align: center; color: var(--muted); padding: 16px;">
-                                Sin pausas registradas.
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+        <!-- VISTA DE CONFIGURACIÓN -->
+        <div id="tab-config" class="tab-view">
+            <div class="header">
+                <span class="brand-tag">pomodoro esp32</span>
+                <h1>Configuración de intervalos</h1>
+                <p class="subtitle">Personaliza los tiempos de enfoque y descanso de tu dispositivo</p>
             </div>
 
-            <!-- TABLA DE TIEMPOS DE REACCIÓN -->
-            <div class="table-card">
-                <h3>Detalle de Reacciones a Alertas</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>Tipo de Alerta</th>
-                            <th>Reacción</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for r in ultimas_reacciones %}
-                        <tr>
-                            <td>{{ r[1].split(' ')[1] if ' ' in r[1] else r[1] }}</td>
-                            <td>
-                                {% if r[2] == 'POST_FOCUS' %}
-                                    <span class="badge focus">Post-Focus</span>
-                                {% elif r[2] == 'POST_DESCANSO_CORTO' %}
-                                    <span class="badge descanso_corto">Post-D. Corto</span>
-                                {% else %}
-                                    <span class="badge descanso_largo">Post-D. Largo</span>
-                                {% endif %}
-                            </td>
-                            <td style="color: #fbbf24; font-weight: 600;">{{ "%.2f"|format(r[3]) }}s</td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="3" style="text-align: center; color: var(--muted); padding: 16px;">
-                                Sin tiempos de reacción.
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <div class="config-grid">
+                <!-- FOCUS COLUMN -->
+                <div class="config-column">
+                    <div class="column-header">
+                        <span class="status-dot focus"></span>
+                        <h2>Sesión de enfoque</h2>
+                    </div>
+                    <div class="time-picker">
+                        <div class="time-picker-grid">
+                            <span class="picker-label">min</span>
+                            <span class="picker-separator-label"></span>
+                            <span class="picker-label">sec</span>
+                            <div class="picker-box-wrapper">
+                                <div class="picker-box">
+                                    <input type="number" id="focus-m" class="digit-input" min="0" max="180" value="25" oninput="validateDigits(this)">
+                                    <span class="picker-colon">:</span>
+                                    <input type="number" id="focus-s" class="digit-input" min="0" max="59" value="00" oninput="validateDigits(this)">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SHORT BREAK COLUMN -->
+                <div class="config-column">
+                    <div class="column-header">
+                        <span class="status-dot short"></span>
+                        <h2>Descanso corto</h2>
+                    </div>
+                    <div class="time-picker">
+                        <div class="time-picker-grid">
+                            <span class="picker-label">min</span>
+                            <span class="picker-separator-label"></span>
+                            <span class="picker-label">sec</span>
+                            <div class="picker-box-wrapper">
+                                <div class="picker-box">
+                                    <input type="number" id="short-m" class="digit-input" min="0" max="60" value="05" oninput="validateDigits(this)">
+                                    <span class="picker-colon">:</span>
+                                    <input type="number" id="short-s" class="digit-input" min="0" max="59" value="00" oninput="validateDigits(this)">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LONG BREAK COLUMN -->
+                <div class="config-column">
+                    <div class="long-break-header-row">
+                        <div class="column-header">
+                            <span class="status-dot long"></span>
+                            <h2>Descanso largo</h2>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="long-active" onchange="toggleLongBreakEffect(true)">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="time-picker" id="long-break-inputs">
+                        <div class="time-picker-grid">
+                            <span class="picker-label">min</span>
+                            <span class="picker-separator-label"></span>
+                            <span class="picker-label">sec</span>
+                            <div class="picker-box-wrapper">
+                                <div class="picker-box">
+                                    <input type="number" id="long-m" class="digit-input" min="0" max="60" value="15" oninput="validateDigits(this)">
+                                    <span class="picker-colon">:</span>
+                                    <input type="number" id="long-s" class="digit-input" min="0" max="59" value="00" oninput="validateDigits(this)">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="cycles-container" id="cycles-container">
+                        <span class="cycles-label">Ciclos de enfoque requeridos</span>
+                        <div class="cycles-input-box">
+                            <input type="number" id="long-cycles" min="2" max="99" value="4" oninput="validateDigits(this)">
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <!-- TABLA DE EVENTOS DE CICLO -->
-            <div class="table-card" style="grid-column: 1 / -1;">
-                <h3>Bitácora de Ciclos Recientes</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>Fase</th>
-                            <th>Evento</th>
-                            <th>Duración Activa</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for c in ultimos_ciclos %}
-                        <tr>
-                            <td>{{ c[1] }}</td>
-                            <td>
-                                {% if c[2] == 'FOCUS' %}
-                                    <span class="badge focus">Enfoque</span>
-                                {% elif c[2] == 'DESCANSO_CORTO' %}
-                                    <span class="badge descanso_corto">D. Corto</span>
-                                {% else %}
-                                    <span class="badge descanso_largo">D. Largo</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if c[3] == 'INICIADO' %}
-                                    <span style="color: #60a5fa; font-weight: 500;">Iniciado</span>
-                                {% elif c[3] == 'COMPLETADO' %}
-                                    <span style="color: #34d399; font-weight: 600;">Completado</span>
-                                {% elif c[3] == 'FORZADO' %}
-                                    <span style="color: #fb923c; font-weight: 600;">Avance Forzado</span>
-                                {% else %}
-                                    <span style="color: #f87171; font-weight: 500;">Cancelado (Reset)</span>
-                                {% endif %}
-                            </td>
-                            <td>{{ c[4] }}s</td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="4" style="text-align: center; color: var(--muted); padding: 16px;">
-                                Sin eventos de ciclos registrados.
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <div class="action-row">
+                <button class="btn-save" onclick="guardarConfiguracion()">Guardar configuración</button>
+            </div>
+
+            <!-- GUÍA DE GESTOS -->
+            <div class="gesture-legend">
+                <div class="legend-header">
+                    <span class="legend-info-icon">i</span>
+                    <span>Guía de gestos del hardware</span>
+                </div>
+                <div class="legend-list">
+                    <div class="legend-item">
+                        <span class="legend-cmd">1 clic</span>
+                        <span class="legend-desc">Pausar/reanudar la fase (o iniciar desde Standby/Alerta)</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-cmd">2 clics</span>
+                        <span class="legend-desc">Reiniciar el tiempo de la fase actual a cero</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-cmd">3 clics</span>
+                        <span class="legend-desc">Forzar avance a la siguiente fase (sin parpadeo de alerta)</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-cmd">Mantener 2s</span>
+                        <span class="legend-desc">Volver a espera (Standby)</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
+
+    <!-- TOAST NOTIFICACIÓN -->
+    <div id="toast" class="toast">Configuración guardada correctamente</div>
 
     <script>
         // Configurar fuentes globales y colores para Chart.js
@@ -709,6 +1090,15 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         Chart.defaults.plugins.tooltip.borderWidth = 1;
         Chart.defaults.plugins.tooltip.titleColor = '#ffffff';
         Chart.defaults.plugins.tooltip.bodyColor = '#cbd5e1';
+
+        // Lógica de pestañas (Tabs)
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-view').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.menu-item').forEach(btn => btn.classList.remove('active'));
+            
+            document.getElementById('tab-' + tabId).classList.add('active');
+            document.getElementById('btn-' + tabId).classList.add('active');
+        }
 
         // Cargar datos para los gráficos desde el endpoint /api/stats
         async function cargarGraficos() {
@@ -722,6 +1112,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     type: 'bar',
                     data: {
                         labels: data.dias_labels,
+                        sidebar: true,
                         datasets: [{
                             label: 'Minutos de enfoque',
                             data: data.dias_minutos,
@@ -772,36 +1163,88 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             }
         }
 
-        // Cargar configuración de tiempos (segundos -> minutos)
+        // Lógica Configuración (dashboard.html)
+        function padZero(num) { return num.toString().padStart(2, '0'); }
+
+        function validateDigits(input) {
+            let val = input.value;
+            if (val.length > 3) input.value = val.slice(0, 3);
+            const min = parseInt(input.min) || 0;
+            const max = parseInt(input.max) || 999;
+            let numericVal = parseInt(input.value);
+            if (!isNaN(numericVal)) {
+                if (numericVal < min) input.value = min;
+                if (numericVal > max) input.value = max;
+            }
+        }
+
+        function toggleLongBreakEffect(animate = false) {
+            const active = document.getElementById('long-active').checked;
+            const inputs = document.getElementById('long-break-inputs');
+            const cycles = document.getElementById('cycles-container');
+            const targetOpacity = active ? '1' : '0.25';
+            const targetPointerEvents = active ? 'auto' : 'none';
+            if (animate) {
+                inputs.style.transition = 'opacity 0.3s';
+                cycles.style.transition = 'opacity 0.3s';
+            }
+            inputs.style.opacity = targetOpacity;
+            inputs.style.pointerEvents = targetPointerEvents;
+            cycles.style.opacity = targetOpacity;
+            cycles.style.pointerEvents = targetPointerEvents;
+        }
+
+        // Cargar configuración de tiempos (segundos -> minutos/segundos)
         async function cargarConfiguracion() {
             try {
                 const res = await fetch('/api/latest_config');
                 const data = await res.json();
                 if (data) {
-                    document.getElementById('inputFocus').value = Math.round((data.tiempo_focus || 1500) / 60);
-                    document.getElementById('inputDescansoCorto').value = Math.round((data.tiempo_descanso_corto || 300) / 60);
-                    document.getElementById('inputDescansoLargo').value = Math.round((data.tiempo_descanso_largo || 900) / 60);
-                    document.getElementById('inputCiclosLargo').value = data.ciclos_para_descanso_largo || 4;
-                    document.getElementById('inputDescansoLargoActivo').checked = data.descanso_largo_activo !== false;
+                    document.getElementById('focus-m').value = padZero(Math.floor((data.tiempo_focus || 1500) / 60));
+                    document.getElementById('focus-s').value = padZero((data.tiempo_focus || 1500) % 60);
+                    document.getElementById('short-m').value = padZero(Math.floor((data.tiempo_descanso_corto || 300) / 60));
+                    document.getElementById('short-s').value = padZero((data.tiempo_descanso_corto || 300) % 60);
+                    document.getElementById('long-m').value = padZero(Math.floor((data.tiempo_descanso_largo || 900) / 60));
+                    document.getElementById('long-s').value = padZero((data.tiempo_descanso_largo || 900) % 60);
+                    document.getElementById('long-active').checked = data.descanso_largo_activo !== false;
+                    document.getElementById('long-cycles').value = data.ciclos_para_descanso_largo || 4;
+                    toggleLongBreakEffect(false);
                 }
             } catch(e) {
                 console.error("Error cargando configuración inicial:", e);
             }
         }
 
-        // Manejar envío del formulario (minutos -> segundos)
-        document.getElementById('configForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const status = document.getElementById('saveStatus');
-            status.textContent = "Guardando...";
-            status.style.color = "var(--muted)";
+        // Guardar configuración (minutos/segundos -> segundos)
+        async function guardarConfiguracion() {
+            const focusM = parseInt(document.getElementById('focus-m').value) || 0;
+            const focusS = parseInt(document.getElementById('focus-s').value) || 0;
+            const shortM = parseInt(document.getElementById('short-m').value) || 0;
+            const shortS = parseInt(document.getElementById('short-s').value) || 0;
+            const longM  = parseInt(document.getElementById('long-m').value) || 0;
+            const longS  = parseInt(document.getElementById('long-s').value) || 0;
+            const totalFocus = focusM * 60 + focusS;
+            const totalShort = shortM * 60 + shortS;
+            const totalLong  = longM * 60 + longS;
+            const longActive = document.getElementById('long-active').checked;
+            const longCyclesVal = parseInt(document.getElementById('long-cycles').value) || 4;
+            
+            if (longActive && longCyclesVal > 99) {
+                alert('La cantidad de ciclos para descanso largo no puede ser mayor a 99.');
+                return;
+            }
+            const longCycles = Math.min(99, Math.max(2, longCyclesVal));
+            if (totalFocus <= 0 || totalShort <= 0 || (longActive && totalLong <= 0)) {
+                alert('Las duraciones de los intervalos deben ser mayores a cero segundos.');
+                return;
+            }
             
             const payload = {
-                tiempo_focus: parseInt(document.getElementById('inputFocus').value) * 60,
-                tiempo_descanso_corto: parseInt(document.getElementById('inputDescansoCorto').value) * 60,
-                tiempo_descanso_largo: parseInt(document.getElementById('inputDescansoLargo').value) * 60,
-                ciclos_para_descanso_largo: parseInt(document.getElementById('inputCiclosLargo').value),
-                descanso_largo_activo: document.getElementById('inputDescansoLargoActivo').checked
+                tiempo_focus: totalFocus,
+                tiempo_descanso_corto: totalShort,
+                tiempo_descanso_largo: totalLong,
+                ciclos_para_descanso_largo: longCycles,
+                descanso_largo_activo: longActive
             };
             
             try {
@@ -812,17 +1255,24 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 });
                 const result = await res.json();
                 if (result.status === 'success') {
-                    status.textContent = "¡Configuración guardada exitosamente!";
-                    status.style.color = "var(--descanso-largo)";
-                    setTimeout(() => status.textContent = "", 3000);
+                    const toast = document.getElementById('toast');
+                    toast.classList.add('show');
+                    setTimeout(() => toast.classList.remove('show'), 3000);
                 } else {
-                    status.textContent = "Error: " + result.message;
-                    status.style.color = "var(--focus)";
+                    alert("Error: " + result.message);
                 }
             } catch(err) {
-                status.textContent = "Error de red al guardar.";
-                status.style.color = "var(--focus)";
+                alert("Error de red al guardar.");
             }
+        }
+
+        // Formatear ceros al perder foco (onblur)
+        const digitInputs = document.querySelectorAll('.digit-input');
+        digitInputs.forEach(input => {
+            input.addEventListener('blur', () => {
+                let val = parseInt(input.value) || 0;
+                input.value = padZero(val);
+            });
         });
 
         cargarGraficos();
