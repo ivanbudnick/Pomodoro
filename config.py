@@ -172,6 +172,69 @@ def cargar_wifi():
         WIFI_SSID = ""
         WIFI_PASSWORD = ""
 
+def enviar_post_directo(url, payload):
+    """Realiza una solicitud HTTP POST síncrona y directa (sin cola ni hilos)"""
+    try:
+        import urequests
+    except ImportError:
+        print("[HTTP ERROR] Módulo urequests no disponible.")
+        return False
+        
+    res = None
+    try:
+        import gc
+        gc.collect()
+        print("[HTTP POST] Enviando datos a:", url)
+        res = urequests.post(url, json=payload, timeout=3)
+        status = res.status_code
+        res.close()
+        return 200 <= status < 300
+    except Exception as e:
+        print("[HTTP ERROR] Fallo al enviar POST directo:", e)
+        if res:
+            try:
+                res.close()
+            except:
+                pass
+        return False
+
+def sincronizar_config():
+    """Descarga e impone la configuración horaria de la Base de Datos centralizada en Vercel"""
+    try:
+        import urequests
+    except ImportError:
+        print("[SYNC WARNING] Modulo urequests no disponible para sincronización.")
+        return
+        
+    try:
+        import gc
+        gc.collect()
+        
+        url = SERVER_URL + "/api/latest_config"
+        print("[SYNC] Descargando última configuración de Vercel desde {}...".format(url))
+        res = urequests.get(url, timeout=3)
+        if res.status_code == 200:
+            data = res.json()
+            if data:
+                global tiempo_focus_s, tiempo_descanso_corto_s, tiempo_descanso_largo_s, descanso_largo_activo, ciclos_para_descanso_largo
+                tiempo_focus_s = int(data.get("tiempo_focus", tiempo_focus_s))
+                tiempo_descanso_corto_s = int(data.get("tiempo_descanso_corto", tiempo_descanso_corto_s))
+                tiempo_descanso_largo_s = int(data.get("tiempo_descanso_largo", tiempo_descanso_largo_s))
+                descanso_largo_activo = bool(data.get("descanso_largo_activo", descanso_largo_activo))
+                ciclos_para_descanso_largo = int(data.get("ciclos_para_descanso_largo", ciclos_para_descanso_largo))
+                guardar_a_disco()
+                print("[SYNC SUCCESS] Configuración de tiempos sincronizada con Vercel.")
+            else:
+                print("[SYNC INFO] No hay configuraciones en la nube aún.")
+        else:
+            print("[SYNC WARNING] Servidor Vercel no disponible. Código: {}".format(res.status_code))
+        res.close()
+    except Exception as e:
+        print("[SYNC WARNING] No se pudo conectar a Vercel para sincronizar ({}).".format(e))
+    finally:
+        import gc
+        gc.collect()
+
 # Cola de telemetría asíncrona en memoria
 telemetria_cola = []
 import _thread
