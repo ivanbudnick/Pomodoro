@@ -142,7 +142,8 @@ def enviar_reporte_flask(tipo_sesion, ciclo_num, duracion_s, forzado=0):
             "duracion_s": duracion_s,
             "forzado": forzado
         }
-        exito = config.enviar_post_directo(config.FLASK_SERVER_URL, payload)
+        import server
+        exito = server.enviar_request_seguro(config.FLASK_SERVER_URL, payload)
         if exito:
             print("[FLASK REPORT] Sesión '{}' (#{}) enviada a la nube. Forzado: {}".format(tipo_sesion, ciclo_num, forzado))
         else:

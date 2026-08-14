@@ -408,7 +408,7 @@ def enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa
             "porcentaje_transcurrido": porcentaje,
             "duracion_pausa_s": duracion_pausa_s
         }
-        config.enviar_post_directo(url, payload)
+        enviar_request_seguro(url, payload)
     except Exception as e:
         print("[REPORT PAUSE WARNING] No se pudo enviar reporte de pausa:", e)
     finally:
@@ -422,7 +422,7 @@ def enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s):
             "tipo_alerta": tipo_alerta,
             "duracion_alerta_s": duracion_alerta_s
         }
-        config.enviar_post_directo(url, payload)
+        enviar_request_seguro(url, payload)
     except Exception as e:
         print("[REPORT REACTION WARNING] No se pudo enviar reporte de reacción:", e)
     finally:
@@ -438,7 +438,7 @@ def enviar_reporte_ciclo(fase, evento, tiempo_activo_s, forzado=0):
             "tiempo_activo_s": tiempo_activo_s,
             "forzado": forzado
         }
-        config.enviar_post_directo(url, payload)
+        enviar_request_seguro(url, payload)
     except Exception as e:
         print("[REPORT CYCLE WARNING] No se pudo enviar reporte de ciclo:", e)
     finally:
@@ -615,7 +615,7 @@ def atender_cliente_http(conn):
         except:
             pass
 
-def iniciar_servidor_http():
+def iniciar_servidor_http(silencioso=False):
     """Abre el socket principal de escucha TCP puerto 80 de forma no bloqueante"""
     global server_socket
     import gc
@@ -628,17 +628,51 @@ def iniciar_servidor_http():
         # Configurar en modo no bloqueante para evitar detener la máquina de estados en main.py
         server_socket.setblocking(False)
         
-        try:
-            import network
-            wlan = network.WLAN(network.STA_IF)
-            ip = wlan.ifconfig()[0] if wlan.isconnected() else "192.168.4.1"
-        except:
-            ip = "192.168.4.1"
-            
-        print("Servidor HTTP iniciado en puerto 80. Bucle Pomodoro activo.")
-        print("Edita la configuración de tiempos en: http://{}/".format(ip))
+        if not silencioso:
+            try:
+                import network
+                wlan = network.WLAN(network.STA_IF)
+                ip = wlan.ifconfig()[0] if wlan.isconnected() else "192.168.4.1"
+            except:
+                ip = "192.168.4.1"
+                
+            print("Servidor HTTP iniciado en puerto 80. Bucle Pomodoro activo.")
+            print("Edita la configuración de tiempos en: http://{}/".format(ip))
     except Exception as e:
-        print("[ADVERTENCIA] No se pudo iniciar el servidor HTTP ({}). El Pomodoro funcionará en modo local.".format(e))
+        if not silencioso:
+            print("[ADVERTENCIA] No se pudo iniciar el servidor HTTP ({}). El Pomodoro funcionará en modo local.".format(e))
+
+def enviar_request_seguro(url, payload):
+    """
+    Cierra temporalmente el socket del servidor HTTP local para liberar la máxima cantidad
+    de memoria RAM contigua y evitar MBEDTLS_ERR_X509_ALLOC_FAILED durante el apretón
+    de manos SSL (HTTPS) con Vercel.
+    """
+    global server_socket
+    
+    # 1. Liberar socket local
+    if server_socket is not None:
+        try:
+            server_socket.close()
+        except:
+            pass
+        server_socket = None
+        
+    import gc
+    gc.collect()
+    
+    # 2. Realizar petición HTTP síncrona
+    exito = False
+    try:
+        exito = config.enviar_post_directo(url, payload)
+    except Exception as e:
+        print("[HTTP SAFE ERROR] Fallo en petición segura:", e)
+        
+    # 3. Restablecer/Reabrir el servidor local HTTP silenciosamente
+    gc.collect()
+    iniciar_servidor_http(silencioso=True)
+    
+    return exito
 
 def atender_peticiones_http():
     """Llamado periódicamente para verificar de forma instantánea si hay peticiones TCP pendientes"""
