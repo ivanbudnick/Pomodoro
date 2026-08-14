@@ -245,6 +245,8 @@ def _ejecutar_estado_standby(ahora, start_requested):
         except Exception as e:
             print("[STANDBY WARNING] Fallo al sincronizar configuración:", e)
 
+        config.print_configuracion_actual()
+
         cronometro = ahora
         tiempo_acumulado_ms = 0
         pausado = False
@@ -448,6 +450,7 @@ def ejecutar_pomodoro_step():
             ciclos_focus_consecutivos = 0
             ultimo_titilo = ahora
             print("[POMODORO] Reset total. Regreso a STANDBY. Ciclos de descanso reiniciados.")
+            config.print_configuracion_actual()
         return
 
     # GESTOS EN TIEMPO DE FASE: Pausa y Reset local de fase

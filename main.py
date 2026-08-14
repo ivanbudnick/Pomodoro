@@ -87,6 +87,7 @@ else:
     print("\n[WIFI SUCCESS] Dirección IP de la ESP32: http://{}".format(ip))
 
 print("--> Sistema Pomodoro ESP32 Listo. Esperando interacción por botón.\n")
+config.print_configuracion_actual()
 
 # ==============================================================================
 # BUCLE PRINCIPAL NO BLOQUEANTE (STATE POLLING)

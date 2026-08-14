@@ -142,8 +142,16 @@ def cargar_de_disco():
             guardar_a_disco()
             
         print("[CONFIG SUCCESS] Configuración cargada desde config.json local.")
+        print_configuracion_actual()
     except Exception as e:
         print("[CONFIG ERROR] Fallo al leer config.json local:", e)
+
+def print_configuracion_actual():
+    """Muestra en la consola la configuración actual de tiempos en segundos"""
+    print("[CONFIG] Tiempos activos: Focus={}s, Descanso Corto={}s, Descanso Largo={}s (Largo={}, Ciclos={})".format(
+        tiempo_focus_s, tiempo_descanso_corto_s, tiempo_descanso_largo_s,
+        "Activo" if descanso_largo_activo else "Inactivo", ciclos_para_descanso_largo
+    ))
 def cargar_wifi():
     """
     Carga el SSID y la contraseña WiFi guardados en wifi.json.
@@ -208,10 +216,13 @@ def sincronizar_config():
         
     try:
         import gc
+        # Ejecutar recolección doble para desfragmentar el Heap antes de la negociación TLS
         gc.collect()
+        gc.collect()
+        ram_libre = gc.mem_free()
         
         url = SERVER_URL + "/api/latest_config"
-        print("[SYNC] Descargando última configuración de Vercel desde {}...".format(url))
+        print("[SYNC] Descargando última configuración de Vercel desde {} (RAM libre: {} bytes)...".format(url, ram_libre))
         res = urequests.get(url, timeout=3)
         if res.status_code == 200:
             data = res.json()
@@ -224,6 +235,7 @@ def sincronizar_config():
                 ciclos_para_descanso_largo = int(data.get("ciclos_para_descanso_largo", ciclos_para_descanso_largo))
                 guardar_a_disco()
                 print("[SYNC SUCCESS] Configuración de tiempos sincronizada con Vercel.")
+                print_configuracion_actual()
             else:
                 print("[SYNC INFO] No hay configuraciones en la nube aún.")
         else:
