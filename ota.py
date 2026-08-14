@@ -32,7 +32,8 @@ def check_and_perform_ota():
         config.OTA_GITHUB_BRANCH
     )
     
-    manifest_url = base_url + "/manifest.json"
+    import time
+    manifest_url = base_url + "/manifest.json?cb={}".format(time.ticks_ms())
     print("[OTA] Consultando manifiesto en:", manifest_url)
     
     manifest = None
@@ -86,7 +87,8 @@ def check_and_perform_ota():
         temp_filename = filename + ".tmp"
         temp_files.append((filename, temp_filename))
         
-        file_url = base_url + "/" + filename
+        import time
+        file_url = base_url + "/" + filename + "?cb={}".format(time.ticks_ms())
         print("[OTA] Descargando '{}' desde GitHub...".format(filename))
         
         gc.collect()
