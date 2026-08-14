@@ -77,23 +77,16 @@ if ip != "Offline":
 # ------------------------------------------------------------------------------
 # Carga de módulos pesados tras liberar/comprobar actualizaciones y sincronizar
 # ------------------------------------------------------------------------------
-import server
 import pomodoro
 import audio
 
-# Si la conexión ligera falló, el método completo levantará el Portal Cautivo si es necesario
+# Si la conexión ligera falló, el ESP32 continuará en modo local (Offline)
 if ip == "Offline":
-    ip = server.connect_wifi()
-    if ip != "Offline":
-        try:
-            config.sincronizar_config_pc()
-        except Exception as e:
-            print("[SYNC ERROR] Fallo en sincronización de configuración:", e)
+    print("\n[WIFI] No se pudo conectar a la red Wi-Fi. Funcionando en modo OFFLINE local.")
+else:
+    print("\n[WIFI SUCCESS] Dirección IP de la ESP32: http://{}".format(ip))
 
-# Iniciar el socket del servidor HTTP para recibir y responder solicitudes del Dashboard
-server.iniciar_servidor_http()
-
-print("--> Sistema Pomodoro ESP32 Listo. Esperando interacción por botón o web.\n")
+print("--> Sistema Pomodoro ESP32 Listo. Esperando interacción por botón.\n")
 
 # ==============================================================================
 # BUCLE PRINCIPAL NO BLOQUEANTE (STATE POLLING)
@@ -103,13 +96,10 @@ print("--> Sistema Pomodoro ESP32 Listo. Esperando interacción por botón o web
 # bloqueantes (como 'time.sleep' prolongados o sockets síncronos sin timeout).
 #
 # En cada iteración:
-# 1. Se atienden peticiones HTTP entrantes (no bloqueante, timeout muy corto).
-# 2. Se actualizan los temporizadores y la máquina de estados del Pomodoro.
-# 3. Se evalúa el temporizador de inactividad para entrar en Deep Sleep.
-# 4. Se duerme 10ms (LOOP_SLEEP_MS) para liberar tiempo de CPU y reducir consumo.
+# 1. Se actualizan los temporizadores y la máquina de estados del Pomodoro.
+# 2. Se evalúa el temporizador de inactividad para entrar en Deep Sleep.
+# 3. Se duerme 10ms (LOOP_SLEEP_MS) para liberar tiempo de CPU y reducir consumo.
 while True:
-    # Atender solicitudes HTTP entrantes
-    server.atender_peticiones_http()
 
     # Ejecutar tick de la máquina de estados del Pomodoro
     pomodoro.ejecutar_pomodoro_step()

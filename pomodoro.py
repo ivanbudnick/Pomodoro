@@ -76,22 +76,19 @@ def obtener_nombre_fase(estado):
 
 def reportar_ciclo(fase, evento, tiempo, forzado=0):
     try:
-        import server
-        server.enviar_reporte_ciclo(fase, evento, tiempo, forzado)
+        config.enviar_reporte_ciclo(fase, evento, tiempo, forzado)
     except:
         pass
 
 def reportar_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s):
     try:
-        import server
-        server.enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s)
+        config.enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s)
     except:
         pass
 
 def reportar_reaccion(tipo_alerta, duracion_alerta_s):
     try:
-        import server
-        server.enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s)
+        config.enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s)
     except:
         pass
 
@@ -142,8 +139,7 @@ def enviar_reporte_flask(tipo_sesion, ciclo_num, duracion_s, forzado=0):
             "duracion_s": duracion_s,
             "forzado": forzado
         }
-        import server
-        exito = server.enviar_request_seguro(config.FLASK_SERVER_URL, payload)
+        exito = config.enviar_post_directo(config.FLASK_SERVER_URL, payload)
         if exito:
             print("[FLASK REPORT] Sesión '{}' (#{}) enviada a la nube. Forzado: {}".format(tipo_sesion, ciclo_num, forzado))
         else:

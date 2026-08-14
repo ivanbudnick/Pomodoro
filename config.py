@@ -371,6 +371,52 @@ def sincronizar_config_pc():
         import gc
         gc.collect()
 
+def enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s):
+    try:
+        url = FLASK_SERVER_URL.replace("/datos", "/api/registro_pausa")
+        payload = {
+            "fase": fase,
+            "tiempo_transcurrido_s": tiempo_transcurrido_s,
+            "porcentaje_transcurrido": porcentaje,
+            "duracion_pausa_s": duracion_pausa_s
+        }
+        enviar_post_directo(url, payload)
+    except Exception as e:
+        print("[REPORT PAUSE WARNING] No se pudo enviar reporte de pausa:", e)
+    finally:
+        import gc
+        gc.collect()
+
+def enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s):
+    try:
+        url = FLASK_SERVER_URL.replace("/datos", "/api/registro_reaccion")
+        payload = {
+            "tipo_alerta": tipo_alerta,
+            "duracion_alerta_s": duracion_alerta_s
+        }
+        enviar_post_directo(url, payload)
+    except Exception as e:
+        print("[REPORT REACTION WARNING] No se pudo enviar reporte de reacción:", e)
+    finally:
+        import gc
+        gc.collect()
+
+def enviar_reporte_ciclo(fase, evento, tiempo_activo_s, forzado=0):
+    try:
+        url = FLASK_SERVER_URL.replace("/datos", "/api/registro_ciclo")
+        payload = {
+            "fase": fase,
+            "evento": evento,
+            "tiempo_activo_s": tiempo_activo_s,
+            "forzado": forzado
+        }
+        enviar_post_directo(url, payload)
+    except Exception as e:
+        print("[REPORT CYCLE WARNING] No se pudo enviar reporte de ciclo:", e)
+    finally:
+        import gc
+        gc.collect()
+
 # ==============================================================================
 # AUTO-EJECUCIÓN AL CARGAR EL MÓDULO
 # ==============================================================================
