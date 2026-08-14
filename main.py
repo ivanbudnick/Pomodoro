@@ -65,9 +65,15 @@ if ip != "Offline":
         ota.check_and_perform_ota()
     except Exception as e:
         print("[OTA ERROR] Fallo en chequeo OTA:", e)
+        
+    # Sincronizar configuración con el servidor Flask/Vercel (mientras la RAM está limpia)
+    try:
+        config.sincronizar_config_pc()
+    except Exception as e:
+        print("[SYNC ERROR] Fallo en sincronización de configuración:", e)
 
 # ------------------------------------------------------------------------------
-# Carga de módulos pesados tras liberar/comprobar actualizaciones
+# Carga de módulos pesados tras liberar/comprobar actualizaciones y sincronizar
 # ------------------------------------------------------------------------------
 import server
 import pomodoro
@@ -76,9 +82,11 @@ import audio
 # Si la conexión ligera falló, el método completo levantará el Portal Cautivo si es necesario
 if ip == "Offline":
     ip = server.connect_wifi()
-
-if ip != "Offline":
-    server.sincronizar_config_pc()
+    if ip != "Offline":
+        try:
+            config.sincronizar_config_pc()
+        except Exception as e:
+            print("[SYNC ERROR] Fallo en sincronización de configuración:", e)
 
 # Iniciar el socket del servidor HTTP para recibir y responder solicitudes del Dashboard
 server.iniciar_servidor_http()

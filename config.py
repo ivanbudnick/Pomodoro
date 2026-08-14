@@ -11,7 +11,8 @@
 # --- CONFIGURACIÓN DE WIFI Y SERVIDOR FLASK ---
 WIFI_SSID = ""            # Nombre de la red WiFi (se carga de wifi.json)
 WIFI_PASSWORD = ""        # Contraseña de la red WiFi (se carga de wifi.json)
-FLASK_SERVER_URL = "https://pomodoro-mocha-one.vercel.app/"  # Endpoint REST en la PC
+DEFAULT_FLASK_SERVER_URL = "https://pomodoro-mocha-one.vercel.app/datos"  # URL predeterminada en la nube/PC
+FLASK_SERVER_URL = DEFAULT_FLASK_SERVER_URL  # Endpoint REST en la PC/nube
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC_SESIONES = "pomodoro/sesiones"
@@ -117,6 +118,7 @@ def cargar_de_disco():
             print("[CONFIG INFO] No existe config.json local. Usando valores por defecto.")
             return
             
+        debe_guardar = False
         with open("config.json", "r") as f:
             data = json.load(f)
             tiempo_focus_s = int(data.get("tiempo_focus", tiempo_focus_s))
@@ -124,10 +126,27 @@ def cargar_de_disco():
             tiempo_descanso_largo_s = int(data.get("tiempo_descanso_largo", tiempo_descanso_largo_s))
             descanso_largo_activo = bool(data.get("descanso_largo_activo", descanso_largo_activo))
             ciclos_para_descanso_largo = int(data.get("ciclos_para_descanso_largo", ciclos_para_descanso_largo))
-            FLASK_SERVER_URL = data.get("flask_server_url", FLASK_SERVER_URL)
+            
+            saved_url = data.get("flask_server_url", FLASK_SERVER_URL)
+            # Detección de migración: si la URL por defecto es remota (no local) y la guardada es local (ej. 192.168.x.x),
+            # forzamos la actualización al valor por defecto (migración a Vercel)
+            is_default_remote = "https://" in DEFAULT_FLASK_SERVER_URL or not ("192.168." in DEFAULT_FLASK_SERVER_URL or "10." in DEFAULT_FLASK_SERVER_URL or "172." in DEFAULT_FLASK_SERVER_URL or "localhost" in DEFAULT_FLASK_SERVER_URL)
+            is_saved_local = "192.168." in saved_url or "10." in saved_url or "172." in saved_url or "localhost" in saved_url
+            
+            if is_default_remote and is_saved_local:
+                print("[CONFIG] Detectada migración a servidor de la nube (Vercel). Ignorando IP local obsoleta de config.json.")
+                FLASK_SERVER_URL = DEFAULT_FLASK_SERVER_URL
+                debe_guardar = True
+            else:
+                FLASK_SERVER_URL = saved_url
+                
             OTA_GITHUB_USER = data.get("ota_github_user", OTA_GITHUB_USER)
             OTA_GITHUB_REPO = data.get("ota_github_repo", OTA_GITHUB_REPO)
             OTA_GITHUB_BRANCH = data.get("ota_github_branch", OTA_GITHUB_BRANCH)
+            
+        if debe_guardar:
+            guardar_a_disco()
+            
         print("[CONFIG SUCCESS] Configuración cargada desde config.json local.")
     except Exception as e:
         print("[CONFIG ERROR] Fallo al leer config.json local:", e)
@@ -159,6 +178,152 @@ def cargar_wifi():
         print("[WIFI CONFIG ERROR] Fallo al cargar wifi.json:", e)
         WIFI_SSID = ""
         WIFI_PASSWORD = ""
+
+def descubrir_servidor_pc():
+    """
+    Intenta descubrir la dirección IP del servidor Flask en la PC
+    utilizando un broadcast UDP en la red local.
+    """
+    global FLASK_SERVER_URL
+    # Si la URL del servidor es una URL de la nube (HTTPS o dominio externo),
+    # omitir la búsqueda local para evitar demoras innecesarias por timeout.
+    is_remote = "https://" in FLASK_SERVER_URL or not ("192.168." in FLASK_SERVER_URL or "10." in FLASK_SERVER_URL or "172." in FLASK_SERVER_URL or "localhost" in FLASK_SERVER_URL)
+    if is_remote:
+        return False
+
+    import socket
+    import gc
+    import network
+    
+    print("[DISCOVERY] Buscando servidor en la red local...")
+    wlan = network.WLAN(network.STA_IF)
+    if not wlan.isconnected():
+        return False
+        
+    try:
+        # Crear socket UDP
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(2.0)
+        
+        # Intentar habilitar broadcast (SO_BROADCAST es 0x0020 en lwIP)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, 0x0020, 1)
+        except:
+            pass
+            
+        # Enviar mensaje de descubrimiento al puerto 5002
+        sock.sendto(b"POMODORO_DISCOVER", ("255.255.255.255", 5002))
+        
+        # Enviar también al broadcast de la subred para mayor compatibilidad
+        try:
+            ip_info = wlan.ifconfig()
+            ip = ip_info[0]
+            parts = ip.split('.')
+            if len(parts) == 4:
+                subnet_broadcast = "{}.{}.{}.255".format(parts[0], parts[1], parts[2])
+                sock.sendto(b"POMODORO_DISCOVER", (subnet_broadcast, 5002))
+        except:
+            pass
+            
+        # Esperar respuesta
+        data, addr = sock.recvfrom(1024)
+        msg = data.decode('utf-8').split(':')
+        if msg[0] == "POMODORO_RESPONSE":
+            pc_ip = addr[0]
+            port = msg[1] if len(msg) > 1 else "5001"
+            
+            old_url = FLASK_SERVER_URL
+            FLASK_SERVER_URL = "http://{}:{}/datos".format(pc_ip, port)
+            
+            print("[DISCOVERY SUCCESS] ¡Servidor encontrado en {}!".format(pc_ip))
+            if old_url != FLASK_SERVER_URL:
+                print("[DISCOVERY] URL del servidor actualizada a: {}".format(FLASK_SERVER_URL))
+                guardar_a_disco()
+            sock.close()
+            return True
+    except Exception as e:
+        print("[DISCOVERY INFO] No se pudo encontrar el servidor automáticamente ({}). Usando fallback.".format(e))
+    finally:
+        try:
+            sock.close()
+        except:
+            pass
+        gc.collect()
+        
+    return False
+
+def sincronizar_hora_ntp():
+    """Intenta sincronizar la hora usando un servidor NTP de internet"""
+    try:
+        import ntptime
+        print("[NTP] Sincronizando hora con pool.ntp.org...")
+        ntptime.host = "pool.ntp.org"
+        ntptime.settime()
+        import offline_queue
+        offline_queue.rtc_sincronizado = True
+        print("[NTP SUCCESS] Reloj RTC sincronizado mediante NTP.")
+        return True
+    except Exception as e:
+        print("[NTP WARNING] No se pudo sincronizar hora por NTP:", e)
+        return False
+
+def sincronizar_config_pc():
+    """Descarga e impone la configuración horaria de la Base de Datos centralizada (Flask) en la PC"""
+    # Intentar descubrir el servidor automáticamente antes de sincronizar
+    descubrir_servidor_pc()
+    
+    try:
+        import urequests
+    except ImportError:
+        urequests = None
+        
+    if urequests is None:
+        print("[SYNC WARNING] Modulo urequests no disponible. Intentando NTP...")
+        sincronizar_hora_ntp()
+        return
+    try:
+        import gc
+        gc.collect()
+        
+        url = FLASK_SERVER_URL.replace("/datos", "/api/latest_config")
+        print("[SYNC] Descargando última configuración de la PC desde {}...".format(url))
+        res = urequests.get(url, timeout=3)
+        if res.status_code == 200:
+            data = res.json()
+            if data:
+                global tiempo_focus_s, tiempo_descanso_corto_s, tiempo_descanso_largo_s, descanso_largo_activo, ciclos_para_descanso_largo
+                tiempo_focus_s = int(data.get("tiempo_focus", tiempo_focus_s))
+                tiempo_descanso_corto_s = int(data.get("tiempo_descanso_corto", tiempo_descanso_corto_s))
+                tiempo_descanso_largo_s = int(data.get("tiempo_descanso_largo", tiempo_descanso_largo_s))
+                descanso_largo_activo = bool(data.get("descanso_largo_activo", descanso_largo_activo))
+                ciclos_para_descanso_largo = int(data.get("ciclos_para_descanso_largo", ciclos_para_descanso_largo))
+                guardar_a_disco()
+                print("[SYNC SUCCESS] Configuración sincronizada con la base de datos de la PC.")
+                
+                # Sincronizar el RTC de la ESP32 si viene en el JSON
+                server_time = data.get("server_time")
+                if server_time:
+                    try:
+                        import machine
+                        import offline_queue
+                        rtc = machine.RTC()
+                        rtc.datetime(tuple(server_time))
+                        offline_queue.rtc_sincronizado = True
+                        print("[SYNC SUCCESS] Reloj RTC sincronizado con el servidor Flask.")
+                    except Exception as rtc_err:
+                        print("[SYNC WARNING] Fallo al establecer hora RTC desde Flask:", rtc_err)
+            else:
+                print("[SYNC INFO] No hay configuraciones en la BD de la PC aún.")
+        else:
+            print("[SYNC WARNING] Servidor Flask no disponible. Intentando NTP...")
+            sincronizar_hora_ntp()
+        res.close()
+    except Exception as e:
+        print("[SYNC WARNING] No se pudo conectar a la PC para sincronizar ({}). Intentando NTP...".format(e))
+        sincronizar_hora_ntp()
+    finally:
+        import gc
+        gc.collect()
 
 # ==============================================================================
 # AUTO-EJECUCIÓN AL CARGAR EL MÓDULO
