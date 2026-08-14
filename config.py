@@ -371,6 +371,78 @@ def sincronizar_config_pc():
         import gc
         gc.collect()
 
+# Cola de telemetría asíncrona en memoria
+telemetria_cola = []
+import _thread
+cola_lock = _thread.allocate_lock()
+worker_iniciado = False
+
+def encolar_telemetria(url, payload):
+    """Agrega un reporte a la cola en memoria para envío asíncrono y arranca el worker si no está activo"""
+    global worker_iniciado
+    
+    # Inyectar timestamp y sync si no vienen
+    if "timestamp" not in payload:
+        payload["timestamp"] = obtener_timestamp()
+    if "sync" not in payload:
+        payload["sync"] = rtc_sincronizado
+        
+    with cola_lock:
+        if len(telemetria_cola) < 50:
+            telemetria_cola.append((url, payload))
+        else:
+            print("[TELEMETRY WARNING] Cola llena. Descartando reporte antiguo.")
+            telemetria_cola.pop(0)
+            telemetria_cola.append((url, payload))
+            
+    if not worker_iniciado:
+        try:
+            _thread.start_new_thread(_telemetry_worker, ())
+            worker_iniciado = True
+        except Exception as e:
+            print("[TELEMETRY ERROR] No se pudo iniciar el hilo asíncrono:", e)
+
+def _telemetry_worker():
+    """Bucle del hilo de fondo que procesa la cola de telemetría secuencialmente"""
+    global worker_iniciado
+    
+    import urequests
+    import gc
+    import time
+    
+    while True:
+        item = None
+        with cola_lock:
+            if len(telemetria_cola) > 0:
+                item = telemetria_cola.pop(0)
+                
+        if item is not None:
+            url, payload = item
+            intento = 0
+            exito = False
+            while intento < 2 and not exito:
+                res = None
+                try:
+                    gc.collect()
+                    res = urequests.post(url, json=payload, timeout=5)
+                    if 200 <= res.status_code < 300:
+                        exito = True
+                    res.close()
+                except Exception as e:
+                    if res:
+                        try:
+                            res.close()
+                        except:
+                            pass
+                intento += 1
+                if not exito:
+                    time.sleep_ms(500)
+            
+            # Recolectar basura tras cada envío asíncrono
+            gc.collect()
+        else:
+            time.sleep_ms(500)
+
 def enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s):
     try:
         url = FLASK_SERVER_URL.replace("/datos", "/api/registro_pausa")
@@ -380,12 +452,9 @@ def enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa
             "porcentaje_transcurrido": porcentaje,
             "duracion_pausa_s": duracion_pausa_s
         }
-        enviar_post_directo(url, payload)
+        encolar_telemetria(url, payload)
     except Exception as e:
-        print("[REPORT PAUSE WARNING] No se pudo enviar reporte de pausa:", e)
-    finally:
-        import gc
-        gc.collect()
+        print("[REPORT PAUSE WARNING] No se pudo encolar reporte de pausa:", e)
 
 def enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s):
     try:
@@ -394,12 +463,9 @@ def enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s):
             "tipo_alerta": tipo_alerta,
             "duracion_alerta_s": duracion_alerta_s
         }
-        enviar_post_directo(url, payload)
+        encolar_telemetria(url, payload)
     except Exception as e:
-        print("[REPORT REACTION WARNING] No se pudo enviar reporte de reacción:", e)
-    finally:
-        import gc
-        gc.collect()
+        print("[REPORT REACTION WARNING] No se pudo encolar reporte de reacción:", e)
 
 def enviar_reporte_ciclo(fase, evento, tiempo_activo_s, forzado=0):
     try:
@@ -410,12 +476,9 @@ def enviar_reporte_ciclo(fase, evento, tiempo_activo_s, forzado=0):
             "tiempo_activo_s": tiempo_activo_s,
             "forzado": forzado
         }
-        enviar_post_directo(url, payload)
+        encolar_telemetria(url, payload)
     except Exception as e:
-        print("[REPORT CYCLE WARNING] No se pudo enviar reporte de ciclo:", e)
-    finally:
-        import gc
-        gc.collect()
+        print("[REPORT CYCLE WARNING] No se pudo encolar reporte de ciclo:", e)
 
 # ==============================================================================
 # AUTO-EJECUCIÓN AL CARGAR EL MÓDULO

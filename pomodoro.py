@@ -128,7 +128,7 @@ def enviar_reporte_mqtt(tipo_sesion, ciclo_num, duracion_s):
 def enviar_reporte_flask(tipo_sesion, ciclo_num, duracion_s, forzado=0):
     """
     Registra el fin de una sesión de forma remota en la base de datos de la PC/nube (Vercel).
-    Ejecutado de forma síncrona y directa para evitar sobrecarga de memoria e hilos.
+    Encolado de forma asíncrona para evitar pausas en el bucle principal.
     """
     try:
         payload = {
@@ -139,18 +139,10 @@ def enviar_reporte_flask(tipo_sesion, ciclo_num, duracion_s, forzado=0):
             "duracion_s": duracion_s,
             "forzado": forzado
         }
-        exito = config.enviar_post_directo(config.FLASK_SERVER_URL, payload)
-        if exito:
-            print("[FLASK REPORT] Sesión '{}' (#{}) enviada a la nube. Forzado: {}".format(tipo_sesion, ciclo_num, forzado))
-        else:
-            print("[FLASK REPORT WARNING] Fallo al enviar por HTTP. Intentando fallback MQTT...")
-            # Fallback: Intentar MQTT
-            enviar_reporte_mqtt(tipo_sesion, ciclo_num, duracion_s)
+        config.encolar_telemetria(config.FLASK_SERVER_URL, payload)
+        print("[FLASK REPORT] Sesión '{}' (#{}) encolada para envío.".format(tipo_sesion, ciclo_num))
     except Exception as e:
-        print("[FLASK REPORT ERROR] Error en reporte síncrono:", e)
-    finally:
-        import gc
-        gc.collect()
+        print("[FLASK REPORT ERROR] Error al encolar reporte:", e)
 
 # ==============================================================================
 # HELPERS DE TEMPORIZACIÓN (OPTIMIZACIÓN DE CÓDIGO)
@@ -449,6 +441,13 @@ def ejecutar_pomodoro_step():
             ciclos_focus_consecutivos = 0
             ultimo_titilo = ahora
             print("[POMODORO] Reset total. Regreso a STANDBY. Ciclos de descanso reiniciados.")
+            
+            # Sincronizar configuraciones de tiempos al entrar en Standby (idle)
+            try:
+                print("[STANDBY] Entrando a Standby. Sincronizando configuraciones...")
+                config.sincronizar_config_pc()
+            except Exception as e:
+                print("[STANDBY WARNING] Fallo al sincronizar configuración:", e)
         return
 
     # GESTOS EN TIEMPO DE FASE: Pausa y Reset local de fase
