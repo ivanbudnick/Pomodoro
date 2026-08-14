@@ -11,8 +11,8 @@
 # --- CONFIGURACIÓN DE WIFI Y SERVIDOR EN LA NUBE ---
 WIFI_SSID = ""            # Nombre de la red WiFi (se carga de wifi.json)
 WIFI_PASSWORD = ""        # Contraseña de la red WiFi (se carga de wifi.json)
-DEFAULT_SERVER_URL = "https://pomodoro-mocha-one.vercel.app"  # URL predeterminada en la nube
-SERVER_URL = DEFAULT_SERVER_URL  # Base URL del servidor en la nube
+DEFAULT_SERVER_URL = "https://3d-moai.vercel.app"  # URL predeterminada de 3D-Moai
+SERVER_URL = DEFAULT_SERVER_URL  # Base URL del servidor de la nube
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC_SESIONES = "pomodoro/sesiones"
@@ -20,6 +20,14 @@ try:
     from version import VERSION
 except ImportError:
     VERSION = "1.0.1"
+
+# Identificación Única de Hardware (MAC address de la ESP32)
+import machine
+import ubinascii
+try:
+    DEVICE_ID = ubinascii.hexlify(machine.unique_id()).decode('utf-8')
+except Exception:
+    DEVICE_ID = "esp32_unknown"
 
 # --- CONFIGURACIÓN DE ACTUALIZACIONES OTA (GITHUB) ---
 OTA_GITHUB_USER = "ivanbudnick"   # Usuario de GitHub propietario del repositorio
@@ -207,7 +215,7 @@ def enviar_post_directo(url, payload):
         return False
 
 def sincronizar_config():
-    """Descarga e impone la configuración horaria de la Base de Datos centralizada en Vercel"""
+    """Descarga e impone la configuración horaria de la Base de Datos centralizada en 3D-Moai"""
     try:
         import urequests
     except ImportError:
@@ -221,8 +229,8 @@ def sincronizar_config():
         gc.collect()
         ram_libre = gc.mem_free()
         
-        url = SERVER_URL + "/api/latest_config"
-        print("[SYNC] Descargando última configuración de Vercel desde {} (RAM libre: {} bytes)...".format(url, ram_libre))
+        url = SERVER_URL + "/api/pomodoro/config?device_id=" + DEVICE_ID
+        print("[SYNC] Descargando última configuración de 3D-Moai desde {} (RAM libre: {} bytes)...".format(url, ram_libre))
         res = urequests.get(url, timeout=3)
         if res.status_code == 200:
             data = res.json()
@@ -234,15 +242,15 @@ def sincronizar_config():
                 descanso_largo_activo = bool(data.get("descanso_largo_activo", descanso_largo_activo))
                 ciclos_para_descanso_largo = int(data.get("ciclos_para_descanso_largo", ciclos_para_descanso_largo))
                 guardar_a_disco()
-                print("[SYNC SUCCESS] Configuración de tiempos sincronizada con Vercel.")
+                print("[SYNC SUCCESS] Configuración de tiempos sincronizada con 3D-Moai.")
                 print_configuracion_actual()
             else:
                 print("[SYNC INFO] No hay configuraciones en la nube aún.")
         else:
-            print("[SYNC WARNING] Servidor Vercel no disponible. Código: {}".format(res.status_code))
+            print("[SYNC WARNING] Servidor 3D-Moai no disponible. Código: {}".format(res.status_code))
         res.close()
     except Exception as e:
-        print("[SYNC WARNING] No se pudo conectar a Vercel para sincronizar ({}).".format(e))
+        print("[SYNC WARNING] No se pudo conectar a 3D-Moai para sincronizar ({}).".format(e))
     finally:
         import gc
         gc.collect()
@@ -315,12 +323,13 @@ def _telemetry_worker():
 
 def enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s):
     try:
-        url = SERVER_URL + "/api/registro_pausa"
+        url = SERVER_URL + "/api/pomodoro/stats"
         payload = {
-            "fase": fase,
-            "tiempo_transcurrido_s": tiempo_transcurrido_s,
-            "porcentaje_transcurrido": porcentaje,
-            "duracion_pausa_s": duracion_pausa_s
+            "device_id": DEVICE_ID,
+            "tipo_sesion": "pausa_" + fase.lower(),
+            "ciclo_num": tiempo_transcurrido_s,
+            "duracion_s": duracion_pausa_s,
+            "forzado": 0
         }
         encolar_telemetria(url, payload)
     except Exception as e:
@@ -328,10 +337,13 @@ def enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa
 
 def enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s):
     try:
-        url = SERVER_URL + "/api/registro_reaccion"
+        url = SERVER_URL + "/api/pomodoro/stats"
         payload = {
-            "tipo_alerta": tipo_alerta,
-            "duracion_alerta_s": duracion_alerta_s
+            "device_id": DEVICE_ID,
+            "tipo_sesion": "reaccion_" + tipo_alerta.lower(),
+            "ciclo_num": 0,
+            "duracion_s": int(duracion_alerta_s),
+            "forzado": 0
         }
         encolar_telemetria(url, payload)
     except Exception as e:
@@ -339,11 +351,12 @@ def enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s):
 
 def enviar_reporte_ciclo(fase, evento, tiempo_activo_s, forzado=0):
     try:
-        url = SERVER_URL + "/api/registro_ciclo"
+        url = SERVER_URL + "/api/pomodoro/stats"
         payload = {
-            "fase": fase,
-            "evento": evento,
-            "tiempo_activo_s": tiempo_activo_s,
+            "device_id": DEVICE_ID,
+            "tipo_sesion": fase.lower(),
+            "ciclo_num": 0,
+            "duracion_s": tiempo_activo_s,
             "forzado": forzado
         }
         encolar_telemetria(url, payload)

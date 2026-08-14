@@ -127,19 +127,18 @@ def enviar_reporte_mqtt(tipo_sesion, ciclo_num, duracion_s):
 
 def enviar_reporte_nube(tipo_sesion, ciclo_num, duracion_s, forzado=0):
     """
-    Registra el fin de una sesión de forma remota en la base de datos de la nube (Vercel).
+    Registra el fin de una sesión de forma remota en la base de datos de la nube (3D-Moai).
     Encolado de forma asíncrona para evitar pausas en el bucle principal.
     """
     try:
         payload = {
-            "dispositivo": "ESP32_Pomodoro",
-            "evento": "sesion_completada",
+            "device_id": config.DEVICE_ID,
             "tipo_sesion": tipo_sesion,
             "ciclo_num": ciclo_num,
             "duracion_s": duracion_s,
             "forzado": forzado
         }
-        config.encolar_telemetria(config.SERVER_URL + "/datos", payload)
+        config.encolar_telemetria(config.SERVER_URL + "/api/pomodoro/stats", payload)
         print("[NUBE REPORT] Sesión '{}' (#{}) encolada para envío.".format(tipo_sesion, ciclo_num))
     except Exception as e:
         print("[NUBE REPORT ERROR] Error al encolar reporte:", e)
