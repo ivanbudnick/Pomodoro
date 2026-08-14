@@ -16,6 +16,7 @@ FLASK_SERVER_URL = DEFAULT_FLASK_SERVER_URL  # Endpoint REST en la PC/nube
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC_SESIONES = "pomodoro/sesiones"
+VERSION = "1.0.1"
 
 # --- CONFIGURACIÓN DE ACTUALIZACIONES OTA (GITHUB) ---
 OTA_GITHUB_USER = "ivanbudnick"   # Usuario de GitHub propietario del repositorio

@@ -2,6 +2,8 @@ import time
 import machine
 import config
 
+print("\n--- POMODORO ESP32 v{} ---".format(config.VERSION))
+
 # ==============================================================================
 # SECUENCIA DE ARRANQUE Y OPTIMIZACIÓN DE MEMORIA RAM
 # ==============================================================================
