@@ -1286,8 +1286,20 @@ def calcular_rachas(conn):
     """Calcula la racha actual y máxima de días consecutivos con al menos 1 sesión Focus"""
     cursor = conn.cursor()
     cursor.execute("SELECT DISTINCT date(timestamp) FROM sesiones_pomodoro WHERE tipo_sesion = 'focus' ORDER BY date(timestamp) DESC")
-    dias = [datetime.strptime(row[0], '%Y-%m-%d').date() for row in cursor.fetchall()]
     
+    dias = []
+    for row in cursor.fetchall():
+        val = row[0]
+        if isinstance(val, str):
+            # Formato SQLite: "YYYY-MM-DD" o "YYYY-MM-DD HH:MM:SS"
+            dias.append(datetime.strptime(val.split(' ')[0], '%Y-%m-%d').date())
+        elif val is not None:
+            # En Postgres, psycopg2 devuelve un objeto date o datetime
+            if hasattr(val, 'date') and hasattr(val, 'hour'):
+                dias.append(val.date())
+            else:
+                dias.append(val)
+                
     if not dias:
         return 0, 0
 
@@ -1584,18 +1596,27 @@ def api_stats():
     cursor.execute("SELECT tipo_sesion, COUNT(*) FROM sesiones_pomodoro GROUP BY tipo_sesion")
     counts = dict(cursor.fetchall())
     
-    # Focus acumulado por día en los últimos 7 días
-    cursor.execute("""
-        SELECT date(timestamp) as dia, SUM(duracion_s) / 60.0
-        FROM sesiones_pomodoro
-        WHERE tipo_sesion = 'focus' AND timestamp >= date('now', '-6 days')
-        GROUP BY date(timestamp)
-        ORDER BY dia ASC
-    """)
+    # Focus acumulado por día en los últimos 7 días (ajustado según BD)
+    if is_postgres(conn):
+        cursor.execute("""
+            SELECT timestamp::date as dia, SUM(duracion_s) / 60.0
+            FROM sesiones_pomodoro
+            WHERE tipo_sesion = 'focus' AND timestamp >= CURRENT_DATE - INTERVAL '6 days'
+            GROUP BY timestamp::date
+            ORDER BY dia ASC
+        """)
+    else:
+        cursor.execute("""
+            SELECT date(timestamp) as dia, SUM(duracion_s) / 60.0
+            FROM sesiones_pomodoro
+            WHERE tipo_sesion = 'focus' AND timestamp >= date('now', '-6 days')
+            GROUP BY date(timestamp)
+            ORDER BY dia ASC
+        """)
     dias_data = cursor.fetchall()
     conn.close()
     
-    dias_labels = [row[0] for row in dias_data]
+    dias_labels = [row[0].strftime('%Y-%m-%d') if hasattr(row[0], 'strftime') else str(row[0]) for row in dias_data]
     dias_minutos = [round(row[1], 1) for row in dias_data]
     
     return jsonify({

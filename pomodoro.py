@@ -125,9 +125,9 @@ def enviar_reporte_mqtt(tipo_sesion, ciclo_num, duracion_s):
         print("[MQTT REPORT WARNING] No se pudo enviar reporte por MQTT ({}). Intentando fallback por HTTP...".format(e))
         return False
 
-def enviar_reporte_flask(tipo_sesion, ciclo_num, duracion_s, forzado=0):
+def enviar_reporte_nube(tipo_sesion, ciclo_num, duracion_s, forzado=0):
     """
-    Registra el fin de una sesión de forma remota en la base de datos de la PC/nube (Vercel).
+    Registra el fin de una sesión de forma remota en la base de datos de la nube (Vercel).
     Encolado de forma asíncrona para evitar pausas en el bucle principal.
     """
     try:
@@ -139,10 +139,10 @@ def enviar_reporte_flask(tipo_sesion, ciclo_num, duracion_s, forzado=0):
             "duracion_s": duracion_s,
             "forzado": forzado
         }
-        config.encolar_telemetria(config.FLASK_SERVER_URL, payload)
-        print("[FLASK REPORT] Sesión '{}' (#{}) encolada para envío.".format(tipo_sesion, ciclo_num))
+        config.encolar_telemetria(config.SERVER_URL + "/datos", payload)
+        print("[NUBE REPORT] Sesión '{}' (#{}) encolada para envío.".format(tipo_sesion, ciclo_num))
     except Exception as e:
-        print("[FLASK REPORT ERROR] Error al encolar reporte:", e)
+        print("[NUBE REPORT ERROR] Error al encolar reporte:", e)
 
 # ==============================================================================
 # HELPERS DE TEMPORIZACIÓN (OPTIMIZACIÓN DE CÓDIGO)
@@ -238,6 +238,13 @@ def _ejecutar_estado_standby(ahora, start_requested):
         ultimo_titilo = ahora
         
     if start_requested:
+        # Sincronizar configuraciones de tiempos desde Vercel justo al presionar comenzar
+        try:
+            print("[STANDBY] Presionado comenzar. Sincronizando configuraciones...")
+            config.sincronizar_config()
+        except Exception as e:
+            print("[STANDBY WARNING] Fallo al sincronizar configuración:", e)
+
         cronometro = ahora
         tiempo_acumulado_ms = 0
         pausado = False
@@ -262,7 +269,7 @@ def _ejecutar_estado_focus(ahora):
         ciclos_focus_consecutivos += 1
         print("[POMODORO] ¡Sesión FOCUS #{} Completada! ({}s)".format(ciclos_focus_consecutivos, config.tiempo_focus_s))
         audio.play_done_focus()
-        enviar_reporte_flask("focus", ciclos_focus_consecutivos, config.tiempo_focus_s)
+        enviar_reporte_nube("focus", ciclos_focus_consecutivos, config.tiempo_focus_s)
         
         # Reportar completado del FOCUS
         reportar_ciclo("FOCUS", "COMPLETADO", config.tiempo_focus_s)
@@ -301,7 +308,7 @@ def _ejecutar_estado_descanso_corto(ahora):
     if transcurrido >= duracion_ms:
         hardware.set_color_pwm(0, 0, 0)
         audio.play_done_break()
-        enviar_reporte_flask("descanso_corto", ciclos_focus_consecutivos, config.tiempo_descanso_corto_s)
+        enviar_reporte_nube("descanso_corto", ciclos_focus_consecutivos, config.tiempo_descanso_corto_s)
         
         # Reportar completado del descanso corto
         reportar_ciclo("DESCANSO_CORTO", "COMPLETADO", config.tiempo_descanso_corto_s)
@@ -328,7 +335,7 @@ def _ejecutar_estado_descanso_largo(ahora):
     if transcurrido >= duracion_ms:
         hardware.set_color_pwm(0, 0, 0)
         audio.play_done_break()
-        enviar_reporte_flask("descanso_largo", ciclos_focus_consecutivos, config.tiempo_descanso_largo_s)
+        enviar_reporte_nube("descanso_largo", ciclos_focus_consecutivos, config.tiempo_descanso_largo_s)
         
         # Reportar completado del descanso largo
         reportar_ciclo("DESCANSO_LARGO", "COMPLETADO", config.tiempo_descanso_largo_s)
@@ -441,13 +448,6 @@ def ejecutar_pomodoro_step():
             ciclos_focus_consecutivos = 0
             ultimo_titilo = ahora
             print("[POMODORO] Reset total. Regreso a STANDBY. Ciclos de descanso reiniciados.")
-            
-            # Sincronizar configuraciones de tiempos al entrar en Standby (idle)
-            try:
-                print("[STANDBY] Entrando a Standby. Sincronizando configuraciones...")
-                config.sincronizar_config_pc()
-            except Exception as e:
-                print("[STANDBY WARNING] Fallo al sincronizar configuración:", e)
         return
 
     # GESTOS EN TIEMPO DE FASE: Pausa y Reset local de fase

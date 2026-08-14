@@ -68,9 +68,9 @@ if ip != "Offline":
     except Exception as e:
         print("[OTA ERROR] Fallo en chequeo OTA:", e)
         
-    # Sincronizar configuración con el servidor Flask/Vercel (mientras la RAM está limpia)
+    # Sincronizar configuración con el servidor Vercel (mientras la RAM está limpia)
     try:
-        config.sincronizar_config_pc()
+        config.sincronizar_config()
     except Exception as e:
         print("[SYNC ERROR] Fallo en sincronización de configuración:", e)
 

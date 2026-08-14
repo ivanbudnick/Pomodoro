@@ -8,16 +8,18 @@
 # en tiempo de ejecución (por ejemplo, desde el servidor web) y guardadas
 # de forma persistente.
 
-# --- CONFIGURACIÓN DE WIFI Y SERVIDOR FLASK ---
+# --- CONFIGURACIÓN DE WIFI Y SERVIDOR EN LA NUBE ---
 WIFI_SSID = ""            # Nombre de la red WiFi (se carga de wifi.json)
 WIFI_PASSWORD = ""        # Contraseña de la red WiFi (se carga de wifi.json)
-DEFAULT_FLASK_SERVER_URL = "https://pomodoro-mocha-one.vercel.app/datos"  # URL predeterminada en la nube/PC
-FLASK_SERVER_URL = DEFAULT_FLASK_SERVER_URL  # Endpoint REST en la PC/nube
+DEFAULT_SERVER_URL = "https://pomodoro-mocha-one.vercel.app"  # URL predeterminada en la nube
+SERVER_URL = DEFAULT_SERVER_URL  # Base URL del servidor en la nube
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC_SESIONES = "pomodoro/sesiones"
-VERSION = "1.0.1"
-rtc_sincronizado = False
+try:
+    from version import VERSION
+except ImportError:
+    VERSION = "1.0.1"
 
 # --- CONFIGURACIÓN DE ACTUALIZACIONES OTA (GITHUB) ---
 OTA_GITHUB_USER = "ivanbudnick"   # Usuario de GitHub propietario del repositorio
@@ -78,13 +80,11 @@ tiempo_descanso_largo_s = 6   # Duración de Descanso Largo (por defecto 6s para
 
 descanso_largo_activo = True  # Habilita / deshabilita el ciclo de descanso largo
 ciclos_para_descanso_largo = 4 # Cantidad de sesiones de enfoque previas al descanso largo
-
 # --- PERSISTENCIA LOCAL (JSON) EN FLASH DE LA ESP32 ---
 def guardar_a_disco():
     """
     Serializa y guarda la configuración de tiempos en config.json.
-    Esto permite que los cambios realizados vía HTTP persistan
-    a pesar de reinicios o cortes de energía.
+    Esto permite que los cambios de tiempos persistan a reinicios o cortes de energía.
     """
     try:
         import ujson as json
@@ -95,7 +95,7 @@ def guardar_a_disco():
                 "tiempo_descanso_largo": tiempo_descanso_largo_s,
                 "descanso_largo_activo": descanso_largo_activo,
                 "ciclos_para_descanso_largo": ciclos_para_descanso_largo,
-                "flask_server_url": FLASK_SERVER_URL,
+                "server_url": SERVER_URL,
                 "ota_github_user": OTA_GITHUB_USER,
                 "ota_github_repo": OTA_GITHUB_REPO,
                 "ota_github_branch": OTA_GITHUB_BRANCH
@@ -107,10 +107,8 @@ def guardar_a_disco():
 def cargar_de_disco():
     """
     Deserializa config.json para cargar la configuración guardada del usuario.
-    Si el archivo no existe (por ejemplo, en el primer encendido), se mantiene
-    con los valores predeterminados definidos arriba.
     """
-    global tiempo_focus_s, tiempo_descanso_corto_s, tiempo_descanso_largo_s, descanso_largo_activo, ciclos_para_descanso_largo, FLASK_SERVER_URL, OTA_GITHUB_USER, OTA_GITHUB_REPO, OTA_GITHUB_BRANCH
+    global tiempo_focus_s, tiempo_descanso_corto_s, tiempo_descanso_largo_s, descanso_largo_activo, ciclos_para_descanso_largo, SERVER_URL, OTA_GITHUB_USER, OTA_GITHUB_REPO, OTA_GITHUB_BRANCH
     try:
         import os
         import ujson as json
@@ -129,19 +127,13 @@ def cargar_de_disco():
             descanso_largo_activo = bool(data.get("descanso_largo_activo", descanso_largo_activo))
             ciclos_para_descanso_largo = int(data.get("ciclos_para_descanso_largo", ciclos_para_descanso_largo))
             
-            saved_url = data.get("flask_server_url", FLASK_SERVER_URL)
-            # Detección de migración: si la URL por defecto es remota (no local) y la guardada es local (ej. 192.168.x.x),
-            # forzamos la actualización al valor por defecto (migración a Vercel)
-            is_default_remote = "https://" in DEFAULT_FLASK_SERVER_URL or not ("192.168." in DEFAULT_FLASK_SERVER_URL or "10." in DEFAULT_FLASK_SERVER_URL or "172." in DEFAULT_FLASK_SERVER_URL or "localhost" in DEFAULT_FLASK_SERVER_URL)
-            is_saved_local = "192.168." in saved_url or "10." in saved_url or "172." in saved_url or "localhost" in saved_url
-            
-            if is_default_remote and is_saved_local:
-                print("[CONFIG] Detectada migración a servidor de la nube (Vercel). Ignorando IP local obsoleta de config.json.")
-                FLASK_SERVER_URL = DEFAULT_FLASK_SERVER_URL
+            saved_url = data.get("server_url", data.get("flask_server_url", SERVER_URL))
+            # Quitar rutas "/datos" si venían de la versión anterior
+            if saved_url.endswith("/datos"):
+                saved_url = saved_url.replace("/datos", "")
                 debe_guardar = True
-            else:
-                FLASK_SERVER_URL = saved_url
                 
+            SERVER_URL = saved_url
             OTA_GITHUB_USER = data.get("ota_github_user", OTA_GITHUB_USER)
             OTA_GITHUB_REPO = data.get("ota_github_repo", OTA_GITHUB_REPO)
             OTA_GITHUB_BRANCH = data.get("ota_github_branch", OTA_GITHUB_BRANCH)
@@ -152,7 +144,6 @@ def cargar_de_disco():
         print("[CONFIG SUCCESS] Configuración cargada desde config.json local.")
     except Exception as e:
         print("[CONFIG ERROR] Fallo al leer config.json local:", e)
-
 def cargar_wifi():
     """
     Carga el SSID y la contraseña WiFi guardados en wifi.json.
@@ -181,196 +172,6 @@ def cargar_wifi():
         WIFI_SSID = ""
         WIFI_PASSWORD = ""
 
-def descubrir_servidor_pc():
-    """
-    Intenta descubrir la dirección IP del servidor Flask en la PC
-    utilizando un broadcast UDP en la red local.
-    """
-    global FLASK_SERVER_URL
-    # Si la URL del servidor es una URL de la nube (HTTPS o dominio externo),
-    # omitir la búsqueda local para evitar demoras innecesarias por timeout.
-    is_remote = "https://" in FLASK_SERVER_URL or not ("192.168." in FLASK_SERVER_URL or "10." in FLASK_SERVER_URL or "172." in FLASK_SERVER_URL or "localhost" in FLASK_SERVER_URL)
-    if is_remote:
-        return False
-
-    import socket
-    import gc
-    import network
-    
-    print("[DISCOVERY] Buscando servidor en la red local...")
-    wlan = network.WLAN(network.STA_IF)
-    if not wlan.isconnected():
-        return False
-        
-    try:
-        # Crear socket UDP
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(2.0)
-        
-        # Intentar habilitar broadcast (SO_BROADCAST es 0x0020 en lwIP)
-        try:
-            sock.setsockopt(socket.SOL_SOCKET, 0x0020, 1)
-        except:
-            pass
-            
-        # Enviar mensaje de descubrimiento al puerto 5002
-        sock.sendto(b"POMODORO_DISCOVER", ("255.255.255.255", 5002))
-        
-        # Enviar también al broadcast de la subred para mayor compatibilidad
-        try:
-            ip_info = wlan.ifconfig()
-            ip = ip_info[0]
-            parts = ip.split('.')
-            if len(parts) == 4:
-                subnet_broadcast = "{}.{}.{}.255".format(parts[0], parts[1], parts[2])
-                sock.sendto(b"POMODORO_DISCOVER", (subnet_broadcast, 5002))
-        except:
-            pass
-            
-        # Esperar respuesta
-        data, addr = sock.recvfrom(1024)
-        msg = data.decode('utf-8').split(':')
-        if msg[0] == "POMODORO_RESPONSE":
-            pc_ip = addr[0]
-            port = msg[1] if len(msg) > 1 else "5001"
-            
-            old_url = FLASK_SERVER_URL
-            FLASK_SERVER_URL = "http://{}:{}/datos".format(pc_ip, port)
-            
-            print("[DISCOVERY SUCCESS] ¡Servidor encontrado en {}!".format(pc_ip))
-            if old_url != FLASK_SERVER_URL:
-                print("[DISCOVERY] URL del servidor actualizada a: {}".format(FLASK_SERVER_URL))
-                guardar_a_disco()
-            sock.close()
-            return True
-    except Exception as e:
-        print("[DISCOVERY INFO] No se pudo encontrar el servidor automáticamente ({}). Usando fallback.".format(e))
-    finally:
-        try:
-            sock.close()
-        except:
-            pass
-        gc.collect()
-        
-    return False
-
-def obtener_timestamp():
-    """
-    Retorna la fecha y hora actual del RTC local del ESP32
-    en formato legible para SQLite: YYYY-MM-DD HH:MM:SS.
-    """
-    try:
-        import time
-        t = time.localtime()
-        return "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(t[0], t[1], t[2], t[3], t[4], t[5])
-    except Exception as e:
-        print("[RTC WARNING] No se pudo obtener la hora del RTC:", e)
-        return "2000-01-01 00:00:00"
-
-def enviar_post_directo(url, payload):
-    """Realiza una solicitud HTTP POST síncrona y directa (sin cola ni hilos)"""
-    try:
-        import urequests
-    except ImportError:
-        print("[HTTP ERROR] Módulo urequests no disponible.")
-        return False
-        
-    if "timestamp" not in payload:
-        payload["timestamp"] = obtener_timestamp()
-    if "sync" not in payload:
-        payload["sync"] = rtc_sincronizado
-        
-    res = None
-    try:
-        import gc
-        gc.collect()
-        print("[HTTP POST] Enviando datos a:", url)
-        res = urequests.post(url, json=payload, timeout=3)
-        status = res.status_code
-        res.close()
-        return 200 <= status < 300
-    except Exception as e:
-        print("[HTTP ERROR] Fallo al enviar POST directo:", e)
-        if res:
-            try:
-                res.close()
-            except:
-                pass
-        return False
-
-def sincronizar_hora_ntp():
-    """Intenta sincronizar la hora usando un servidor NTP de internet"""
-    try:
-        import ntptime
-        print("[NTP] Sincronizando hora con pool.ntp.org...")
-        ntptime.host = "pool.ntp.org"
-        ntptime.settime()
-        global rtc_sincronizado
-        rtc_sincronizado = True
-        print("[NTP SUCCESS] Reloj RTC sincronizado mediante NTP.")
-        return True
-    except Exception as e:
-        print("[NTP WARNING] No se pudo sincronizar hora por NTP:", e)
-        return False
-
-def sincronizar_config_pc():
-    """Descarga e impone la configuración horaria de la Base de Datos centralizada (Flask) en la PC"""
-    # Intentar descubrir el servidor automáticamente antes de sincronizar
-    descubrir_servidor_pc()
-    
-    try:
-        import urequests
-    except ImportError:
-        urequests = None
-        
-    if urequests is None:
-        print("[SYNC WARNING] Modulo urequests no disponible. Intentando NTP...")
-        sincronizar_hora_ntp()
-        return
-    try:
-        import gc
-        gc.collect()
-        
-        url = FLASK_SERVER_URL.replace("/datos", "/api/latest_config")
-        print("[SYNC] Descargando última configuración de la PC desde {}...".format(url))
-        res = urequests.get(url, timeout=3)
-        if res.status_code == 200:
-            data = res.json()
-            if data:
-                global tiempo_focus_s, tiempo_descanso_corto_s, tiempo_descanso_largo_s, descanso_largo_activo, ciclos_para_descanso_largo
-                tiempo_focus_s = int(data.get("tiempo_focus", tiempo_focus_s))
-                tiempo_descanso_corto_s = int(data.get("tiempo_descanso_corto", tiempo_descanso_corto_s))
-                tiempo_descanso_largo_s = int(data.get("tiempo_descanso_largo", tiempo_descanso_largo_s))
-                descanso_largo_activo = bool(data.get("descanso_largo_activo", descanso_largo_activo))
-                ciclos_para_descanso_largo = int(data.get("ciclos_para_descanso_largo", ciclos_para_descanso_largo))
-                guardar_a_disco()
-                print("[SYNC SUCCESS] Configuración sincronizada con la base de datos de la PC.")
-                
-                # Sincronizar el RTC de la ESP32 si viene en el JSON
-                server_time = data.get("server_time")
-                if server_time:
-                    try:
-                        import machine
-                        rtc = machine.RTC()
-                        rtc.datetime(tuple(server_time))
-                        global rtc_sincronizado
-                        rtc_sincronizado = True
-                        print("[SYNC SUCCESS] Reloj RTC sincronizado con el servidor Flask.")
-                    except Exception as rtc_err:
-                        print("[SYNC WARNING] Fallo al establecer hora RTC desde Flask:", rtc_err)
-            else:
-                print("[SYNC INFO] No hay configuraciones en la BD de la PC aún.")
-        else:
-            print("[SYNC WARNING] Servidor Flask no disponible. Intentando NTP...")
-            sincronizar_hora_ntp()
-        res.close()
-    except Exception as e:
-        print("[SYNC WARNING] No se pudo conectar a la PC para sincronizar ({}). Intentando NTP...".format(e))
-        sincronizar_hora_ntp()
-    finally:
-        import gc
-        gc.collect()
-
 # Cola de telemetría asíncrona en memoria
 telemetria_cola = []
 import _thread
@@ -381,12 +182,6 @@ def encolar_telemetria(url, payload):
     """Agrega un reporte a la cola en memoria para envío asíncrono y arranca el worker si no está activo"""
     global worker_iniciado
     
-    # Inyectar timestamp y sync si no vienen
-    if "timestamp" not in payload:
-        payload["timestamp"] = obtener_timestamp()
-    if "sync" not in payload:
-        payload["sync"] = rtc_sincronizado
-        
     with cola_lock:
         if len(telemetria_cola) < 50:
             telemetria_cola.append((url, payload))
@@ -445,7 +240,7 @@ def _telemetry_worker():
 
 def enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s):
     try:
-        url = FLASK_SERVER_URL.replace("/datos", "/api/registro_pausa")
+        url = SERVER_URL + "/api/registro_pausa"
         payload = {
             "fase": fase,
             "tiempo_transcurrido_s": tiempo_transcurrido_s,
@@ -458,7 +253,7 @@ def enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa
 
 def enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s):
     try:
-        url = FLASK_SERVER_URL.replace("/datos", "/api/registro_reaccion")
+        url = SERVER_URL + "/api/registro_reaccion"
         payload = {
             "tipo_alerta": tipo_alerta,
             "duracion_alerta_s": duracion_alerta_s
@@ -469,7 +264,7 @@ def enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s):
 
 def enviar_reporte_ciclo(fase, evento, tiempo_activo_s, forzado=0):
     try:
-        url = FLASK_SERVER_URL.replace("/datos", "/api/registro_ciclo")
+        url = SERVER_URL + "/api/registro_ciclo"
         payload = {
             "fase": fase,
             "evento": evento,
