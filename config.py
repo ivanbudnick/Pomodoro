@@ -11,8 +11,8 @@
 # --- CONFIGURACIÓN DE WIFI Y SERVIDOR EN LA NUBE ---
 WIFI_SSID = ""            # Nombre de la red WiFi (se carga de wifi.json)
 WIFI_PASSWORD = ""        # Contraseña de la red WiFi (se carga de wifi.json)
-DEFAULT_SERVER_URL = "https://3d-moai.vercel.app"  # URL predeterminada de 3D-Moai
-SERVER_URL = DEFAULT_SERVER_URL  # Base URL del servidor de la nube
+DEFAULT_SERVER_URL = "https://3d-moai.vercel.app" 
+SERVER_URL = DEFAULT_SERVER_URL
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC_SESIONES = "pomodoro/sesiones"
