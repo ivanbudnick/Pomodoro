@@ -17,6 +17,7 @@ MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC_SESIONES = "pomodoro/sesiones"
 VERSION = "1.0.1"
+rtc_sincronizado = False
 
 # --- CONFIGURACIÓN DE ACTUALIZACIONES OTA (GITHUB) ---
 OTA_GITHUB_USER = "ivanbudnick"   # Usuario de GitHub propietario del repositorio
@@ -253,6 +254,50 @@ def descubrir_servidor_pc():
         
     return False
 
+def obtener_timestamp():
+    """
+    Retorna la fecha y hora actual del RTC local del ESP32
+    en formato legible para SQLite: YYYY-MM-DD HH:MM:SS.
+    """
+    try:
+        import time
+        t = time.localtime()
+        return "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(t[0], t[1], t[2], t[3], t[4], t[5])
+    except Exception as e:
+        print("[RTC WARNING] No se pudo obtener la hora del RTC:", e)
+        return "2000-01-01 00:00:00"
+
+def enviar_post_directo(url, payload):
+    """Realiza una solicitud HTTP POST síncrona y directa (sin cola ni hilos)"""
+    try:
+        import urequests
+    except ImportError:
+        print("[HTTP ERROR] Módulo urequests no disponible.")
+        return False
+        
+    if "timestamp" not in payload:
+        payload["timestamp"] = obtener_timestamp()
+    if "sync" not in payload:
+        payload["sync"] = rtc_sincronizado
+        
+    res = None
+    try:
+        import gc
+        gc.collect()
+        print("[HTTP POST] Enviando datos a:", url)
+        res = urequests.post(url, json=payload, timeout=3)
+        status = res.status_code
+        res.close()
+        return 200 <= status < 300
+    except Exception as e:
+        print("[HTTP ERROR] Fallo al enviar POST directo:", e)
+        if res:
+            try:
+                res.close()
+            except:
+                pass
+        return False
+
 def sincronizar_hora_ntp():
     """Intenta sincronizar la hora usando un servidor NTP de internet"""
     try:
@@ -260,8 +305,8 @@ def sincronizar_hora_ntp():
         print("[NTP] Sincronizando hora con pool.ntp.org...")
         ntptime.host = "pool.ntp.org"
         ntptime.settime()
-        import offline_queue
-        offline_queue.rtc_sincronizado = True
+        global rtc_sincronizado
+        rtc_sincronizado = True
         print("[NTP SUCCESS] Reloj RTC sincronizado mediante NTP.")
         return True
     except Exception as e:
@@ -306,10 +351,10 @@ def sincronizar_config_pc():
                 if server_time:
                     try:
                         import machine
-                        import offline_queue
                         rtc = machine.RTC()
                         rtc.datetime(tuple(server_time))
-                        offline_queue.rtc_sincronizado = True
+                        global rtc_sincronizado
+                        rtc_sincronizado = True
                         print("[SYNC SUCCESS] Reloj RTC sincronizado con el servidor Flask.")
                     except Exception as rtc_err:
                         print("[SYNC WARNING] Fallo al establecer hora RTC desde Flask:", rtc_err)

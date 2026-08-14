@@ -399,84 +399,51 @@ def enviar_config_a_pc():
         import gc
         gc.collect()
 
-def _enviar_reporte_pausa_thread(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s):
+def enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s):
     try:
-        import offline_queue
         url = config.FLASK_SERVER_URL.replace("/datos", "/api/registro_pausa")
         payload = {
             "fase": fase,
             "tiempo_transcurrido_s": tiempo_transcurrido_s,
             "porcentaje_transcurrido": porcentaje,
-            "duracion_pausa_s": duracion_pausa_s,
-            "timestamp": offline_queue.obtener_timestamp(),
-            "sync": offline_queue.rtc_sincronizado
+            "duracion_pausa_s": duracion_pausa_s
         }
-        offline_queue.enviar_post_con_cola(url, payload)
+        config.enviar_post_directo(url, payload)
     except Exception as e:
-        print("[REPORT PAUSE WARNING] No se pudo enviar reporte de pausa con cola:", e)
-    finally:
-        import gc
-        gc.collect()
-
-def enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s):
-    try:
-        import _thread
-        _thread.start_new_thread(_enviar_reporte_pausa_thread, (fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s))
-    except Exception as e:
-        print("[THREAD ERROR] Fallo al iniciar hilo de pausa ({}). Ejecutando síncrono...".format(e))
-        _enviar_reporte_pausa_thread(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s)
-
-def _enviar_reporte_reaccion_thread(tipo_alerta, duracion_alerta_s):
-    try:
-        import offline_queue
-        url = config.FLASK_SERVER_URL.replace("/datos", "/api/registro_reaccion")
-        payload = {
-            "tipo_alerta": tipo_alerta,
-            "duracion_alerta_s": duracion_alerta_s,
-            "timestamp": offline_queue.obtener_timestamp(),
-            "sync": offline_queue.rtc_sincronizado
-        }
-        offline_queue.enviar_post_con_cola(url, payload)
-    except Exception as e:
-        print("[REPORT REACTION WARNING] No se pudo enviar reporte de reacción con cola:", e)
+        print("[REPORT PAUSE WARNING] No se pudo enviar reporte de pausa:", e)
     finally:
         import gc
         gc.collect()
 
 def enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s):
     try:
-        import _thread
-        _thread.start_new_thread(_enviar_reporte_reaccion_thread, (tipo_alerta, duracion_alerta_s))
-    except Exception as e:
-        print("[THREAD ERROR] Fallo al iniciar hilo de reacción ({}). Ejecutando síncrono...".format(e))
-        _enviar_reporte_reaccion_thread(tipo_alerta, duracion_alerta_s)
-
-def _enviar_reporte_ciclo_thread(fase, evento, tiempo_activo_s, forzado=0):
-    try:
-        import offline_queue
-        url = config.FLASK_SERVER_URL.replace("/datos", "/api/registro_ciclo")
+        url = config.FLASK_SERVER_URL.replace("/datos", "/api/registro_reaccion")
         payload = {
-            "fase": fase,
-            "evento": evento,
-            "tiempo_activo_s": tiempo_activo_s,
-            "forzado": forzado,
-            "timestamp": offline_queue.obtener_timestamp(),
-            "sync": offline_queue.rtc_sincronizado
+            "tipo_alerta": tipo_alerta,
+            "duracion_alerta_s": duracion_alerta_s
         }
-        offline_queue.enviar_post_con_cola(url, payload)
+        config.enviar_post_directo(url, payload)
     except Exception as e:
-        print("[REPORT CYCLE WARNING] No se pudo enviar reporte de ciclo con cola:", e)
+        print("[REPORT REACTION WARNING] No se pudo enviar reporte de reacción:", e)
     finally:
         import gc
         gc.collect()
 
 def enviar_reporte_ciclo(fase, evento, tiempo_activo_s, forzado=0):
     try:
-        import _thread
-        _thread.start_new_thread(_enviar_reporte_ciclo_thread, (fase, evento, tiempo_activo_s, forzado))
+        url = config.FLASK_SERVER_URL.replace("/datos", "/api/registro_ciclo")
+        payload = {
+            "fase": fase,
+            "evento": evento,
+            "tiempo_activo_s": tiempo_activo_s,
+            "forzado": forzado
+        }
+        config.enviar_post_directo(url, payload)
     except Exception as e:
-        print("[THREAD ERROR] Fallo al iniciar hilo de ciclo ({}). Ejecutando síncrono...".format(e))
-        _enviar_reporte_ciclo_thread(fase, evento, tiempo_activo_s, forzado)
+        print("[REPORT CYCLE WARNING] No se pudo enviar reporte de ciclo:", e)
+    finally:
+        import gc
+        gc.collect()
 
 # ==============================================================================
 # PROCESADORES DE APIS HTTP

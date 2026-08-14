@@ -128,49 +128,32 @@ def enviar_reporte_mqtt(tipo_sesion, ciclo_num, duracion_s):
         print("[MQTT REPORT WARNING] No se pudo enviar reporte por MQTT ({}). Intentando fallback por HTTP...".format(e))
         return False
 
-def _enviar_reporte_thread(tipo_sesion, ciclo_num, duracion_s, forzado=0):
+def enviar_reporte_flask(tipo_sesion, ciclo_num, duracion_s, forzado=0):
     """
-    Subfunción interna ejecutada en segundo plano para realizar el envío.
-    Intenta primero HTTP con cola local (en caso de fallar, encola en flash).
-    Si falla, intenta MQTT como fallback secundario.
+    Registra el fin de una sesión de forma remota en la base de datos de la PC/nube (Vercel).
+    Ejecutado de forma síncrona y directa para evitar sobrecarga de memoria e hilos.
     """
     try:
-        import offline_queue
         payload = {
             "dispositivo": "ESP32_Pomodoro",
             "evento": "sesion_completada",
             "tipo_sesion": tipo_sesion,
             "ciclo_num": ciclo_num,
             "duracion_s": duracion_s,
-            "forzado": forzado,
-            "timestamp": offline_queue.obtener_timestamp(),
-            "sync": offline_queue.rtc_sincronizado
+            "forzado": forzado
         }
-        exito = offline_queue.enviar_post_con_cola(config.FLASK_SERVER_URL, payload)
+        exito = config.enviar_post_directo(config.FLASK_SERVER_URL, payload)
         if exito:
-            print("[FLASK REPORT] Sesión '{}' (#{}) enviada a la PC (y cola vaciada). Forzado: {}".format(tipo_sesion, ciclo_num, forzado))
+            print("[FLASK REPORT] Sesión '{}' (#{}) enviada a la nube. Forzado: {}".format(tipo_sesion, ciclo_num, forzado))
         else:
-            print("[FLASK REPORT WARNING] No se pudo enviar por HTTP local. Encolado en ESP. Intentando fallback MQTT...")
-            # 2. Fallback: Intentar MQTT (requiere DNS lookup de broker.hivemq.com)
+            print("[FLASK REPORT WARNING] Fallo al enviar por HTTP. Intentando fallback MQTT...")
+            # Fallback: Intentar MQTT
             enviar_reporte_mqtt(tipo_sesion, ciclo_num, duracion_s)
     except Exception as e:
-        print("[FLASK REPORT ERROR] Error en reporte con cola:", e)
+        print("[FLASK REPORT ERROR] Error en reporte síncrono:", e)
     finally:
         import gc
         gc.collect()
-
-def enviar_reporte_flask(tipo_sesion, ciclo_num, duracion_s, forzado=0):
-    """
-    Registra el fin de una sesión de forma remota en la base de datos de la PC.
-    Para evitar bloquear el bucle principal (lo que causaría demoras en el paso
-    de fases), esta operación de red se delega a un hilo de fondo asíncrono.
-    """
-    try:
-        import _thread
-        _thread.start_new_thread(_enviar_reporte_thread, (tipo_sesion, ciclo_num, duracion_s, forzado))
-    except Exception as e:
-        print("[THREAD ERROR] No se pudo iniciar hilo de reporte ({}). Ejecutando síncrono...".format(e))
-        _enviar_reporte_thread(tipo_sesion, ciclo_num, duracion_s, forzado)
 
 # ==============================================================================
 # HELPERS DE TEMPORIZACIÓN (OPTIMIZACIÓN DE CÓDIGO)
