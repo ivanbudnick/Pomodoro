@@ -281,8 +281,18 @@ def encolar_telemetria(url, payload):
             
     if not worker_iniciado:
         try:
+            # Incrementar el tamaño del stack de hilos nuevos (por defecto es muy chico para TLS/HTTPS)
+            try:
+                _thread.stack_size(10240)
+            except Exception as se:
+                print("[TELEMETRY WARNING] No se pudo ajustar stack size:", se)
             _thread.start_new_thread(_telemetry_worker, ())
             worker_iniciado = True
+            # Volver a poner el stack size en 0 (por defecto del sistema) para no afectar otros hilos
+            try:
+                _thread.stack_size(0)
+            except:
+                pass
         except Exception as e:
             print("[TELEMETRY ERROR] No se pudo iniciar el hilo asíncrono:", e)
 
@@ -294,6 +304,8 @@ def _telemetry_worker():
     import gc
     import time
     
+    print("[TELEMETRY WORKER] Hilo de telemetría iniciado correctamente.")
+    
     while True:
         item = None
         with cola_lock:
@@ -304,6 +316,7 @@ def _telemetry_worker():
             url, payload = item
             intento = 0
             exito = False
+            print("[TELEMETRY WORKER] Intentando enviar reporte a:", url)
             while intento < 2 and not exito:
                 res = None
                 try:
@@ -311,8 +324,12 @@ def _telemetry_worker():
                     res = urequests.post(url, json=payload, timeout=5)
                     if 200 <= res.status_code < 300:
                         exito = True
+                        print("[TELEMETRY WORKER SUCCESS] Reporte enviado correctamente (status: {}).".format(res.status_code))
+                    else:
+                        print("[TELEMETRY WORKER WARNING] Servidor respondió con status: {} en intento {}.".format(res.status_code, intento + 1))
                     res.close()
                 except Exception as e:
+                    print("[TELEMETRY WORKER ERROR] Intento {} fallido. Error: {}".format(intento + 1, e))
                     if res:
                         try:
                             res.close()
