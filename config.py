@@ -202,10 +202,23 @@ def _http_request_optimizado(method, url, payload=None):
     - No parsea headers de respuesta para POST, liberando buffers SSL de inmediato.
     - Para GET, descarta headers línea por línea para evitar fragmentación del Heap.
     """
-    import usocket as socket
-    import ussl
     import gc
-    import ujson as json
+    
+    # Importaciones robustas con fallback para compatibilidad entre distintas versiones de MicroPython
+    try:
+        import socket
+    except ImportError:
+        import usocket as socket
+        
+    try:
+        import ssl
+    except ImportError:
+        import ussl as ssl
+        
+    try:
+        import json
+    except ImportError:
+        import ujson as json
     
     gc.collect()
     gc.collect()
@@ -242,7 +255,7 @@ def _http_request_optimizado(method, url, payload=None):
         
         # 4. Envolver en SSL si corresponde
         if use_ssl:
-            s = ussl.wrap_socket(s, server_hostname=host)
+            s = ssl.wrap_socket(s, server_hostname=host)
             
         # 5. Formatear y escribir la solicitud (HTTP/1.0)
         req = "{} {} HTTP/1.0\r\nHost: {}\r\n".format(method, path, host)
