@@ -88,6 +88,14 @@ def reportar_reaccion(tipo_alerta, duracion_alerta_s):
     except:
         pass
 
+def mostrar_animacion_sincronizacion(encender):
+    """Establece un color de sincronización (cian suave) durante peticiones blocking"""
+    if encender:
+        hardware.set_color_pwm(0, 200, 400)
+    else:
+        hardware.set_color_pwm(0, 0, 0)
+
+
 # ==============================================================================
 # FUNCIONES DE REPORTERÍA (MQTT & REST FLASK)
 # ==============================================================================

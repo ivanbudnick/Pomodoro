@@ -386,84 +386,43 @@ def sincronizar_config():
     else:
         print("[SYNC WARNING] No se pudo obtener la configuración desde la nube.")
 
-# Cola de telemetría asíncrona en memoria
-telemetria_cola = []
-import _thread
-cola_lock = _thread.allocate_lock()
-worker_iniciado = False
-
 def encolar_telemetria(url, payload):
-    """Agrega un reporte a la cola en memoria para envío asíncrono y arranca el worker si no está activo"""
-    global worker_iniciado
-    
-    with cola_lock:
-        if len(telemetria_cola) < 50:
-            telemetria_cola.append((url, payload))
-        else:
-            print("[TELEMETRY WARNING] Cola llena. Descartando reporte antiguo.")
-            telemetria_cola.pop(0)
-            telemetria_cola.append((url, payload))
-            
-    if not worker_iniciado:
-        try:
-            # Un stack de 20KB es necesario para realizar el handshake SSL (HTTPS) de forma segura
-            try:
-                _thread.stack_size(20480)
-            except Exception as se:
-                print("[TELEMETRY WARNING] No se pudo ajustar stack size:", se)
-            _thread.start_new_thread(_telemetry_worker, ())
-            worker_iniciado = True
-            # Volver a poner el stack size en 0 (por defecto del sistema) para no afectar otros hilos
-            try:
-                _thread.stack_size(0)
-            except:
-                pass
-        except Exception as e:
-            print("[TELEMETRY ERROR] No se pudo iniciar el hilo asíncrono:", e)
-
-def _telemetry_worker():
-    """Bucle del hilo de fondo que procesa la cola de telemetría secuencialmente utilizando el cliente optimizado"""
-    global worker_iniciado
-    
+    """Realiza la solicitud HTTP POST de forma síncrona en el hilo principal para evitar ENOMEM en hilos"""
     import gc
-    import time
+    import pomodoro
     
-    print("[TELEMETRY WORKER] Hilo de telemetría iniciado correctamente.")
-    
-    while True:
-        item = None
-        with cola_lock:
-            if len(telemetria_cola) > 0:
-                item = telemetria_cola.pop(0)
-                print("[TELEMETRY WORKER DEBUG] Elemento extraído. Cola restante: {}".format(len(telemetria_cola)))
-                
-        if item is not None:
-            url, payload = item
-            intento = 0
-            exito = False
-            print("[TELEMETRY WORKER] Intentando enviar reporte a: {}, Payload: {}".format(url, payload))
-            while intento < 2 and not exito:
-                try:
-                    print("[TELEMETRY WORKER DEBUG] Iniciando intento {}/2...".format(intento + 1))
-                    exito = _http_request_optimizado("POST", url, payload)
-                    if exito:
-                        print("[TELEMETRY WORKER SUCCESS] Reporte enviado correctamente.")
-                    else:
-                        print("[TELEMETRY WORKER WARNING] Intento {} falló.".format(intento + 1))
-                except Exception as e:
-                    print("[TELEMETRY WORKER ERROR] Intento {} fallido con excepción: {}".format(intento + 1, e))
-                intento += 1
-                if not exito:
-                    if intento < 2:
-                        print("[TELEMETRY WORKER DEBUG] Esperando 500ms antes de reintentar...")
-                        time.sleep_ms(500)
-                    else:
-                        print("[TELEMETRY WORKER ERROR] Todos los intentos de envío fallaron para este reporte.")
-            
-            # Recolectar basura tras cada envío asíncrono
-            gc.collect()
-        else:
+    # 1. Activar animación de sincronización (cian suave)
+    try:
+        pomodoro.mostrar_animacion_sincronizacion(True)
+    except:
+        pass
+        
+    print("[TELEMETRY] Enviando reporte de estadísticas a:", url)
+    intento = 0
+    exito = False
+    while intento < 2 and not exito:
+        try:
+            print("[TELEMETRY DEBUG] Iniciando intento síncrono {}/2...".format(intento + 1))
+            exito = _http_request_optimizado("POST", url, payload)
+            if exito:
+                print("[TELEMETRY SUCCESS] Reporte enviado correctamente.")
+            else:
+                print("[TELEMETRY WARNING] Intento {} de envío síncrono falló.".format(intento + 1))
+        except Exception as e:
+            print("[TELEMETRY ERROR] Intento {} fallido con excepción: {}".format(intento + 1, e))
+        intento += 1
+        if not exito and intento < 2:
+            import time
             time.sleep_ms(500)
+            
+    # 2. Desactivar animación de sincronización
+    try:
+        pomodoro.mostrar_animacion_sincronizacion(False)
+    except:
+        pass
+        
+    gc.collect()
+    return exito
 
 def enviar_reporte_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s):
     try:

@@ -37,11 +37,18 @@ Este archivo centraliza el historial de problemas encontrados durante el desarro
 * **Causa**: Intentaba invocar a `enviar_reporte_flask`, una función que fue renombrada/eliminada en la transición a Next.js (3D-Moai).
 * **Solución**: Se reemplazó por la función correcta de telemetría de nube: `enviar_reporte_nube(..., forzado=1)`.
 
+### 6. Agotamiento de Memoria del Sistema (System Heap ENOMEM) por Pila de Hilo Secundario
+* **Síntoma**: La envoltura del socket en SSL (`ssl.wrap_socket`) fallaba con `[Errno 12] ENOMEM` a pesar de que el heap de MicroPython mostraba más de 84KB de RAM libre (`gc.mem_free()`).
+* **Causa**: mbedTLS (código C de ESP-IDF) realiza alocaciones dinámicas para el handshake HTTPS en el heap del sistema (ESP-IDF heap, fuera de MicroPython). Un hilo secundario requiere que ESP-IDF asigne su pila (stack) de 20KB directamente desde este mismo heap del sistema. Al estar el hilo activo, consumía de forma permanente 20KB de RAM del sistema, dejando al mbedTLS sin suficiente memoria contigua para los buffers de cifrado (30KB+), lo que resultaba en fallas de `ENOMEM`.
+* **Solución**: Se eliminó por completo el hilo secundario y la cola asíncrona. La telemetría ahora se procesa de forma **síncrona** en el hilo principal. Para que este bloqueo de 1.5 a 2 segundos se vea profesional, se diseñó una **animación artística de sincronización** (el LED RGB se ilumina de color Cian suave `R=0, G=200, B=400` mediante PWM por hardware, el cual continúa oscilando en background aunque la CPU esté bloqueada).
+* **Lección**: Las peticiones HTTPS/SSL en ESP32 son extremadamente demandantes en el heap del sistema (mbedTLS). Evitar el overhead de hilos secundarios y ejecutar la red de forma síncrona en puntos de transición de estados.
+
 ---
 
 ## Resumen de Reglas para Futuras Modificaciones
 
-1. **Pila de Hilos asíncronos**: Cualquier hilo secundario que invoque sockets SSL/HTTPS debe configurarse con `_thread.stack_size(20480)`.
+1. **Evitar Hilos Secundarios para SSL**: No procesar solicitudes HTTPS/SSL en hilos secundarios. Realizarlas de forma síncrona en el hilo principal durante las transiciones de estados (pausa, fin de ciclo, reacción) aprovechando el hardware PWM para mantener una animación de sincronización visual (LED Cian suave).
 2. **Cerrar Sockets Limpiamente**: Asegurar siempre que se leen todos los datos antes de cerrar el socket (bucle de lectura hasta el EOF).
 3. **Control de Memoria**: Usar `gc.collect()` proactivamente antes de llamadas de red SSL.
 4. **Verificación de Encolado**: Evitar duplicar reportes para el mismo evento físico. Utilizar `enviar_reporte_nube` y evitar reintroducir `reportar_ciclo`.
+
