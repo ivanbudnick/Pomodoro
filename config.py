@@ -141,6 +141,12 @@ def cargar_de_disco():
                 saved_url = saved_url.replace("/datos", "")
                 debe_guardar = True
                 
+            # Migración automática si el dominio guardado es el antiguo (pomodoro-mocha-one)
+            if "pomodoro-mocha-one" in saved_url:
+                print("[CONFIG] Detectado dominio antiguo. Migrando automáticamente a: {}".format(DEFAULT_SERVER_URL))
+                saved_url = DEFAULT_SERVER_URL
+                debe_guardar = True
+                
             SERVER_URL = saved_url
             OTA_GITHUB_USER = data.get("ota_github_user", OTA_GITHUB_USER)
             OTA_GITHUB_REPO = data.get("ota_github_repo", OTA_GITHUB_REPO)
