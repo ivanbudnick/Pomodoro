@@ -220,8 +220,10 @@ def _http_request_optimizado(method, url, payload=None):
     except ImportError:
         import ujson as json
     
+    print("[HTTP DEBUG] Iniciando request: {} a {} (RAM libre pre-GC: {} bytes)".format(method, url, gc.mem_free()))
     gc.collect()
     gc.collect()
+    print("[HTTP DEBUG] RAM libre post-GC: {} bytes".format(gc.mem_free()))
     
     # 1. Parsear URL de forma segura
     try:
@@ -238,10 +240,13 @@ def _http_request_optimizado(method, url, payload=None):
         
     use_ssl = proto.startswith("https")
     port = 443 if use_ssl else 80
+    print("[HTTP DEBUG] URL Parsed: proto={}, host={}, path={}, port={}, use_ssl={}".format(proto, host, path, port, use_ssl))
     
     # 2. Resolver DNS
     try:
+        print("[HTTP DEBUG] Resolviendo DNS para {}...".format(host))
         addr = socket.getaddrinfo(host, port)[0][-1]
+        print("[HTTP DEBUG] DNS resuelto: {}".format(addr))
     except Exception as e:
         print("[HTTP ERROR] DNS fail:", e)
         return None
@@ -249,13 +254,24 @@ def _http_request_optimizado(method, url, payload=None):
     s = None
     try:
         # 3. Crear y conectar Socket
+        print("[HTTP DEBUG] Creando socket...")
         s = socket.socket()
         s.settimeout(5)
+        print("[HTTP DEBUG] Conectando a {}...".format(addr))
         s.connect(addr)
+        print("[HTTP DEBUG] Socket conectado exitosamente.")
         
         # 4. Envolver en SSL si corresponde
         if use_ssl:
+            print("[HTTP DEBUG] Envolviendo socket en SSL (RAM libre pre-wrap: {} bytes)...".format(gc.mem_free()))
+            gc.collect()
             s = ssl.wrap_socket(s, server_hostname=host)
+            print("[HTTP DEBUG] SSL wrap exitoso. RAM libre post-wrap: {} bytes".format(gc.mem_free()))
+            try:
+                s.settimeout(5)
+                print("[HTTP DEBUG] Timeout de 5s establecido en socket SSL.")
+            except Exception as te:
+                print("[HTTP DEBUG] No se pudo re-aplicar timeout en socket SSL:", te)
             
         # 5. Formatear y escribir la solicitud (HTTP/1.0)
         req = "{} {} HTTP/1.0\r\nHost: {}\r\n".format(method, path, host)
@@ -267,17 +283,24 @@ def _http_request_optimizado(method, url, payload=None):
             
         req += "\r\n"
         
-        s.write(req.encode('utf-8'))
+        full_req = req.encode('utf-8')
         if body_bytes:
-            s.write(body_bytes)
+            full_req += body_bytes
             
+        print("[HTTP DEBUG] Escribiendo request (Cabeceras={} bytes, Body={} bytes, Total={} bytes)...".format(
+            len(req.encode('utf-8')), len(body_bytes) if body_bytes else 0, len(full_req)))
+        s.write(full_req)
+        print("[HTTP DEBUG] Escribió request en socket.")
+        
         # 6. Leer y evaluar primera línea de respuesta (Status)
+        print("[HTTP DEBUG] Esperando línea de estado...")
         resp_line = s.readline()
         if not resp_line:
             print("[HTTP ERROR] Servidor cerró conexión sin respuesta.")
             return None
             
         status_line = resp_line.decode('utf-8')
+        print("[HTTP DEBUG] Línea de estado recibida: '{}'".format(status_line.strip()))
         
         parts = status_line.split(" ", 2)
         if len(parts) < 2:
@@ -290,33 +313,47 @@ def _http_request_optimizado(method, url, payload=None):
             return None
             
         # 7. Procesar según método
+        print("[HTTP DEBUG] Descartando cabeceras de respuesta...")
+        # Saltar headers línea por línea (sin almacenarlos en memoria)
+        headers_count = 0
+        while True:
+            line = s.readline()
+            if not line or line == b"\r\n":
+                break
+            headers_count += 1
+        print("[HTTP DEBUG] Descartados {} headers. Leyendo cuerpo de respuesta...".format(headers_count))
+        
+        # Leer el body completo (HTTP/1.0 garantiza que lee hasta el EOF al cerrar el server)
+        body_data = s.read()
+        print("[HTTP DEBUG] Cuerpo de respuesta leído: {} bytes. RAM libre: {} bytes".format(len(body_data), gc.mem_free()))
+        
         if method == "GET":
-            # Saltar headers línea por línea (sin almacenarlos en memoria)
-            while True:
-                line = s.readline()
-                if not line or line == b"\r\n":
-                    break
-            # Leer el body completo (HTTP/1.0 garantiza que lee hasta el EOF al cerrar el server)
-            body_data = s.read()
+            print("[HTTP DEBUG] Decodificando respuesta JSON...")
             try:
-                return json.loads(body_data)
+                result = json.loads(body_data)
+                print("[HTTP DEBUG] JSON decodificado exitosamente.")
+                return result
             except Exception as je:
                 print("[HTTP ERROR] Fallo al decodificar JSON del body:", je)
                 return None
         else:
             # Para POST (telemetría), un código 2xx es éxito, no necesitamos parsear el cuerpo
+            print("[HTTP DEBUG] POST request exitoso.")
             return True
             
     except Exception as e:
-        print("[HTTP ERROR] Excepción en request:", e)
+        print("[HTTP ERROR] Excepción atrapada en _http_request_optimizado:", e)
         return None
     finally:
+        print("[HTTP DEBUG] Cerrando socket y liberando recursos...")
         if s:
             try:
                 s.close()
-            except:
-                pass
+                print("[HTTP DEBUG] Socket cerrado.")
+            except Exception as ce:
+                print("[HTTP DEBUG] Error al cerrar socket:", ce)
         gc.collect()
+        print("[HTTP DEBUG] Request finalizado. RAM libre: {} bytes".format(gc.mem_free()))
 
 def enviar_post_directo(url, payload):
     """Realiza una solicitud HTTP POST síncrona y directa (sin cola ni hilos)"""
@@ -398,24 +435,30 @@ def _telemetry_worker():
         with cola_lock:
             if len(telemetria_cola) > 0:
                 item = telemetria_cola.pop(0)
+                print("[TELEMETRY WORKER DEBUG] Elemento extraído. Cola restante: {}".format(len(telemetria_cola)))
                 
         if item is not None:
             url, payload = item
             intento = 0
             exito = False
-            print("[TELEMETRY WORKER] Intentando enviar reporte a:", url)
+            print("[TELEMETRY WORKER] Intentando enviar reporte a: {}, Payload: {}".format(url, payload))
             while intento < 2 and not exito:
                 try:
+                    print("[TELEMETRY WORKER DEBUG] Iniciando intento {}/2...".format(intento + 1))
                     exito = _http_request_optimizado("POST", url, payload)
                     if exito:
                         print("[TELEMETRY WORKER SUCCESS] Reporte enviado correctamente.")
                     else:
                         print("[TELEMETRY WORKER WARNING] Intento {} falló.".format(intento + 1))
                 except Exception as e:
-                    print("[TELEMETRY WORKER ERROR] Intento {} fallido. Error: {}".format(intento + 1, e))
+                    print("[TELEMETRY WORKER ERROR] Intento {} fallido con excepción: {}".format(intento + 1, e))
                 intento += 1
                 if not exito:
-                    time.sleep_ms(500)
+                    if intento < 2:
+                        print("[TELEMETRY WORKER DEBUG] Esperando 500ms antes de reintentar...")
+                        time.sleep_ms(500)
+                    else:
+                        print("[TELEMETRY WORKER ERROR] Todos los intentos de envío fallaron para este reporte.")
             
             # Recolectar basura tras cada envío asíncrono
             gc.collect()
@@ -450,19 +493,7 @@ def enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s):
     except Exception as e:
         print("[REPORT REACTION WARNING] No se pudo encolar reporte de reacción:", e)
 
-def enviar_reporte_ciclo(fase, evento, tiempo_activo_s, forzado=0):
-    try:
-        url = SERVER_URL + "/api/pomodoro/stats"
-        payload = {
-            "device_id": DEVICE_ID,
-            "tipo_sesion": fase.lower(),
-            "ciclo_num": 0,
-            "duracion_s": tiempo_activo_s,
-            "forzado": forzado
-        }
-        encolar_telemetria(url, payload)
-    except Exception as e:
-        print("[REPORT CYCLE WARNING] No se pudo encolar reporte de ciclo:", e)
+
 
 # ==============================================================================
 # AUTO-EJECUCIÓN AL CARGAR EL MÓDULO

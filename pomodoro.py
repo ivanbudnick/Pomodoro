@@ -74,11 +74,7 @@ def obtener_nombre_fase(estado):
         return "DESCANSO_LARGO"
     return "STANDBY"
 
-def reportar_ciclo(fase, evento, tiempo, forzado=0):
-    try:
-        config.enviar_reporte_ciclo(fase, evento, tiempo, forzado)
-    except:
-        pass
+# reportar_ciclo desactivado para evitar telemetría redundante
 
 def reportar_pausa(fase, tiempo_transcurrido_s, porcentaje, duracion_pausa_s):
     try:
@@ -251,7 +247,6 @@ def _ejecutar_estado_standby(ahora, start_requested):
         pausado = False
         estado_actual = ESTADO_FOCUS
         print("[POMODORO] Inicio Sesión FOCUS ({}s).".format(config.tiempo_focus_s))
-        reportar_ciclo("FOCUS", "INICIADO", 0)
         audio.play_start_cold()
         time.sleep_ms(config.DEBOUNCE_BOTON_MS)
 
@@ -271,9 +266,6 @@ def _ejecutar_estado_focus(ahora):
         print("[POMODORO] ¡Sesión FOCUS #{} Completada! ({}s)".format(ciclos_focus_consecutivos, config.tiempo_focus_s))
         audio.play_done_focus()
         enviar_reporte_nube("focus", ciclos_focus_consecutivos, config.tiempo_focus_s)
-        
-        # Reportar completado del FOCUS
-        reportar_ciclo("FOCUS", "COMPLETADO", config.tiempo_focus_s)
         
         cronometro = ahora
         tiempo_acumulado_ms = 0
@@ -311,9 +303,6 @@ def _ejecutar_estado_descanso_corto(ahora):
         audio.play_done_break()
         enviar_reporte_nube("descanso_corto", ciclos_focus_consecutivos, config.tiempo_descanso_corto_s)
         
-        # Reportar completado del descanso corto
-        reportar_ciclo("DESCANSO_CORTO", "COMPLETADO", config.tiempo_descanso_corto_s)
-        
         cronometro = ahora
         tiempo_acumulado_ms = 0
         ultimo_titilo = ahora
@@ -337,9 +326,6 @@ def _ejecutar_estado_descanso_largo(ahora):
         hardware.set_color_pwm(0, 0, 0)
         audio.play_done_break()
         enviar_reporte_nube("descanso_largo", ciclos_focus_consecutivos, config.tiempo_descanso_largo_s)
-        
-        # Reportar completado del descanso largo
-        reportar_ciclo("DESCANSO_LARGO", "COMPLETADO", config.tiempo_descanso_largo_s)
         
         cronometro = ahora
         tiempo_acumulado_ms = 0
@@ -388,10 +374,8 @@ def _ejecutar_estado_alerta(ahora, start_requested):
             estado_actual = siguiente_estado_descanso
             if estado_actual == ESTADO_DESCANSO_LARGO:
                 print("[POMODORO] Inicio DESCANSO LARGO (LED Verde, {}s).".format(config.tiempo_descanso_largo_s))
-                reportar_ciclo("DESCANSO_LARGO", "INICIADO", 0)
             else:
                 print("[POMODORO] Inicio DESCANSO CORTO (LED Azul, {}s).".format(config.tiempo_descanso_corto_s))
-                reportar_ciclo("DESCANSO_CORTO", "INICIADO", 0)
         else:
             # Salimos de alerta post-descanso a una nueva sesión de Focus
             tipo_alerta = "POST_DESCANSO_LARGO" if color_alerta_actual == "verde" else "POST_DESCANSO_CORTO"
@@ -399,7 +383,6 @@ def _ejecutar_estado_alerta(ahora, start_requested):
             
             estado_actual = ESTADO_FOCUS
             print("[POMODORO] Reinicio. Inicio Sesión FOCUS ({}s).".format(config.tiempo_focus_s))
-            reportar_ciclo("FOCUS", "INICIADO", 0)
             
         audio.play_start_warm()
         time.sleep_ms(config.DEBOUNCE_BOTON_MS)
@@ -440,7 +423,7 @@ def ejecutar_pomodoro_step():
                 pct = min(100.0, (tiempo_acumulado_ms // 1000) / total_s * 100.0) if total_s > 0 else 0.0
                 reportar_pausa(fase_nombre, tiempo_acumulado_ms // 1000, pct, duracion_pausa_s)
                 
-            reportar_ciclo(fase_nombre, "CANCELADO", duracion_parcial_s)
+            enviar_reporte_nube(fase_nombre.lower(), ciclos_focus_consecutivos, duracion_parcial_s, forzado=1)
             
             audio.play_reset_idle()
             estado_actual = ESTADO_STANDBY
@@ -474,8 +457,7 @@ def ejecutar_pomodoro_step():
                 ciclos_focus_consecutivos += 1
                 print("[POMODORO] Avance Forzado de FOCUS ({}s)".format(duracion_parcial_s))
                 
-                enviar_reporte_flask("focus", ciclos_focus_consecutivos, duracion_parcial_s, forzado=1)
-                reportar_ciclo("FOCUS", "FORZADO", duracion_parcial_s)
+                enviar_reporte_nube("focus", ciclos_focus_consecutivos, duracion_parcial_s, forzado=1)
                 
                 # Determinar si corresponde ir a descanso largo o corto
                 es_descanso_largo = (
@@ -486,20 +468,16 @@ def ejecutar_pomodoro_step():
                 if es_descanso_largo:
                     estado_actual = ESTADO_DESCANSO_LARGO
                     print("[POMODORO] Inicio DESCANSO LARGO directo (LED Verde, {}s).".format(config.tiempo_descanso_largo_s))
-                    reportar_ciclo("DESCANSO_LARGO", "INICIADO", 0)
                 else:
                     estado_actual = ESTADO_DESCANSO_CORTO
                     print("[POMODORO] Inicio DESCANSO CORTO directo (LED Azul, {}s).".format(config.tiempo_descanso_corto_s))
-                    reportar_ciclo("DESCANSO_CORTO", "INICIADO", 0)
             else:
                 print("[POMODORO] Avance Forzado de descanso {} ({}s)".format(fase_nombre, duracion_parcial_s))
                 
-                enviar_reporte_flask("descanso_largo" if estado_actual == ESTADO_DESCANSO_LARGO else "descanso_corto", ciclos_focus_consecutivos, duracion_parcial_s, forzado=1)
-                reportar_ciclo(fase_nombre, "FORZADO", duracion_parcial_s)
+                enviar_reporte_nube("descanso_largo" if estado_actual == ESTADO_DESCANSO_LARGO else "descanso_corto", ciclos_focus_consecutivos, duracion_parcial_s, forzado=1)
                 
                 estado_actual = ESTADO_FOCUS
                 print("[POMODORO] Inicio Sesión FOCUS directo ({}s).".format(config.tiempo_focus_s))
-                reportar_ciclo("FOCUS", "INICIADO", 0)
                 
             cronometro = ahora
             tiempo_acumulado_ms = 0
@@ -521,13 +499,11 @@ def ejecutar_pomodoro_step():
                 pct = min(100.0, (tiempo_acumulado_ms // 1000) / total_s * 100.0) if total_s > 0 else 0.0
                 reportar_pausa(fase_nombre, tiempo_acumulado_ms // 1000, pct, duracion_pausa_s)
             
-            reportar_ciclo(fase_nombre, "CANCELADO", duracion_parcial_s)
+            enviar_reporte_nube(fase_nombre.lower(), ciclos_focus_consecutivos, duracion_parcial_s, forzado=1)
             
             cronometro = ahora
             tiempo_acumulado_ms = 0
             pausado = False
-            
-            reportar_ciclo(fase_nombre, "INICIADO", 0)
             
             audio.play_reset_phase()
             print("[POMODORO] Fase actual reseteada a 0s.")
