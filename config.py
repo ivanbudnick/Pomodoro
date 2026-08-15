@@ -406,9 +406,9 @@ def encolar_telemetria(url, payload):
             
     if not worker_iniciado:
         try:
-            # Un stack de 8KB es suficiente gracias a que el cliente optimizado consume muy poca pila
+            # Un stack de 20KB es necesario para realizar el handshake SSL (HTTPS) de forma segura
             try:
-                _thread.stack_size(8192)
+                _thread.stack_size(20480)
             except Exception as se:
                 print("[TELEMETRY WARNING] No se pudo ajustar stack size:", se)
             _thread.start_new_thread(_telemetry_worker, ())
