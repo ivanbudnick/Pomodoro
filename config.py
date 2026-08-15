@@ -26,6 +26,8 @@ except ImportError:
 # Identificación Única de Hardware (MAC address de la ESP32)
 import machine
 import ubinascii
+import time
+import math
 try:
     DEVICE_ID = ubinascii.hexlify(machine.unique_id()).decode('utf-8')
 except Exception:
@@ -253,39 +255,41 @@ def _http_request_optimizado(method, url, payload=None):
         print("[HTTP ERROR] DNS fail:", e)
         return None
         
+    raw_s = None
     s = None
     try:
         # 3. Crear y conectar Socket
         print("[HTTP DEBUG] Creando socket...")
-        s = socket.socket()
-        s.settimeout(5)
+        raw_s = socket.socket()
+        raw_s.settimeout(5)
         
         # Evitar estado TIME_WAIT configurando SO_LINGER a 0
         try:
             import struct
             sol_socket = getattr(socket, "SOL_SOCKET", 1)
             so_linger = getattr(socket, "SO_LINGER", 13)
-            s.setsockopt(sol_socket, so_linger, struct.pack('ii', 1, 0))
+            raw_s.setsockopt(sol_socket, so_linger, struct.pack('ii', 1, 0))
             print("[HTTP DEBUG] SO_LINGER establecido a 0 (evita TIME_WAIT).")
         except Exception as le:
             print("[HTTP DEBUG] No se pudo establecer SO_LINGER:", le)
             
         print("[HTTP DEBUG] Conectando a {}...".format(addr))
-        s.connect(addr)
+        raw_s.connect(addr)
         print("[HTTP DEBUG] Socket conectado exitosamente.")
         
+        s = raw_s
         # 4. Envolver en SSL si corresponde
         if use_ssl:
             print("[HTTP DEBUG] Envolviendo socket en SSL (RAM libre pre-wrap: {} bytes)...".format(gc.mem_free()))
             gc.collect()
-            s = ssl.wrap_socket(s, server_hostname=host)
+            s = ssl.wrap_socket(raw_s, server_hostname=host)
             try:
                 s.settimeout(5)
             except Exception:
                 pass
             
-        # 5. Formatear y escribir la solicitud (HTTP/1.0)
-        req = "{} {} HTTP/1.0\r\nHost: {}\r\n".format(method, path, host)
+        # 5. Formatear y escribir la solicitud (HTTP/1.0) con Connection: close
+        req = "{} {} HTTP/1.0\r\nHost: {}\r\nConnection: close\r\n".format(method, path, host)
         
         body_bytes = None
         if payload is not None:
@@ -357,12 +361,20 @@ def _http_request_optimizado(method, url, payload=None):
         return None
     finally:
         print("[HTTP DEBUG] Cerrando socket y liberando recursos...")
-        if s:
+        if s and s is not raw_s:
             try:
                 s.close()
-                print("[HTTP DEBUG] Socket cerrado.")
+                print("[HTTP DEBUG] SSL socket cerrado.")
             except Exception as ce:
-                print("[HTTP DEBUG] Error al cerrar socket:", ce)
+                print("[HTTP DEBUG] Error al cerrar SSL socket:", ce)
+        if raw_s:
+            try:
+                raw_s.close()
+                print("[HTTP DEBUG] Socket base cerrado.")
+            except Exception as ce:
+                print("[HTTP DEBUG] Error al cerrar socket base:", ce)
+        s = None
+        raw_s = None
         gc.collect()
         print("[HTTP DEBUG] Request finalizado. RAM libre: {} bytes".format(gc.mem_free()))
 
@@ -374,9 +386,6 @@ pulsar_activo = False
 
 def thread_pulsar():
     global pulsar_activo
-    import time
-    import math
-    import hardware
     
     step = 0
     while pulsar_activo:
@@ -520,4 +529,10 @@ def enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s):
 # garantizando que los datos actualizados estén disponibles desde el inicio.
 cargar_de_disco()
 cargar_wifi()
+
+# Importar hardware al final para resolver la dependencia circular
+try:
+    import hardware
+except ImportError:
+    pass
 
