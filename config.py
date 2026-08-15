@@ -26,8 +26,6 @@ except ImportError:
 # Identificación Única de Hardware (MAC address de la ESP32)
 import machine
 import ubinascii
-import time
-import math
 try:
     DEVICE_ID = ubinascii.hexlify(machine.unique_id()).decode('utf-8')
 except Exception:
@@ -255,41 +253,39 @@ def _http_request_optimizado(method, url, payload=None):
         print("[HTTP ERROR] DNS fail:", e)
         return None
         
-    raw_s = None
     s = None
     try:
         # 3. Crear y conectar Socket
         print("[HTTP DEBUG] Creando socket...")
-        raw_s = socket.socket()
-        raw_s.settimeout(5)
+        s = socket.socket()
+        s.settimeout(5)
         
         # Evitar estado TIME_WAIT configurando SO_LINGER a 0
         try:
             import struct
             sol_socket = getattr(socket, "SOL_SOCKET", 1)
             so_linger = getattr(socket, "SO_LINGER", 13)
-            raw_s.setsockopt(sol_socket, so_linger, struct.pack('ii', 1, 0))
+            s.setsockopt(sol_socket, so_linger, struct.pack('ii', 1, 0))
             print("[HTTP DEBUG] SO_LINGER establecido a 0 (evita TIME_WAIT).")
         except Exception as le:
             print("[HTTP DEBUG] No se pudo establecer SO_LINGER:", le)
             
         print("[HTTP DEBUG] Conectando a {}...".format(addr))
-        raw_s.connect(addr)
+        s.connect(addr)
         print("[HTTP DEBUG] Socket conectado exitosamente.")
         
-        s = raw_s
         # 4. Envolver en SSL si corresponde
         if use_ssl:
             print("[HTTP DEBUG] Envolviendo socket en SSL (RAM libre pre-wrap: {} bytes)...".format(gc.mem_free()))
             gc.collect()
-            s = ssl.wrap_socket(raw_s, server_hostname=host)
+            s = ssl.wrap_socket(s, server_hostname=host)
             try:
                 s.settimeout(5)
             except Exception:
                 pass
             
-        # 5. Formatear y escribir la solicitud (HTTP/1.0) con Connection: close
-        req = "{} {} HTTP/1.0\r\nHost: {}\r\nConnection: close\r\n".format(method, path, host)
+        # 5. Formatear y escribir la solicitud (HTTP/1.0)
+        req = "{} {} HTTP/1.0\r\nHost: {}\r\n".format(method, path, host)
         
         body_bytes = None
         if payload is not None:
@@ -361,65 +357,18 @@ def _http_request_optimizado(method, url, payload=None):
         return None
     finally:
         print("[HTTP DEBUG] Cerrando socket y liberando recursos...")
-        if s and s is not raw_s:
+        if s:
             try:
                 s.close()
-                print("[HTTP DEBUG] SSL socket cerrado.")
+                print("[HTTP DEBUG] Socket cerrado.")
             except Exception as ce:
-                print("[HTTP DEBUG] Error al cerrar SSL socket:", ce)
-        if raw_s:
-            try:
-                raw_s.close()
-                print("[HTTP DEBUG] Socket base cerrado.")
-            except Exception as ce:
-                print("[HTTP DEBUG] Error al cerrar socket base:", ce)
-        s = None
-        raw_s = None
+                print("[HTTP DEBUG] Error al cerrar socket:", ce)
         gc.collect()
         print("[HTTP DEBUG] Request finalizado. RAM libre: {} bytes".format(gc.mem_free()))
 
 def enviar_post_directo(url, payload):
     """Realiza una solicitud HTTP POST síncrona y directa (sin cola ni hilos)"""
     return bool(_http_request_optimizado("POST", url, payload))
-
-pulsar_activo = False
-
-def thread_pulsar():
-    global pulsar_activo
-    
-    step = 0
-    while pulsar_activo:
-        # Pulsación gradual senoidal de cian (G y B)
-        # Amplitud de 150 a 800 para que varíe de forma visible, pero sin apagarse a 0
-        val = int(475 + 325 * math.sin(step * 0.5))
-        try:
-            hardware.set_color_pwm(0, val, val)
-        except:
-            pass
-        step += 1
-        time.sleep_ms(30) # Pulsación rápida y gradual
-
-def iniciar_pulsacion():
-    global pulsar_activo
-    pulsar_activo = True
-    try:
-        import _thread
-        _thread.stack_size(4096) # Pila mínima necesaria
-        _thread.start_new_thread(thread_pulsar, ())
-        _thread.stack_size(0)
-    except Exception as e:
-        print("[SYNC LED WARNING] No se pudo iniciar pulsación:", e)
-
-def detener_pulsacion():
-    global pulsar_activo
-    pulsar_activo = False
-    import time
-    time.sleep_ms(50)
-    try:
-        import hardware
-        hardware.set_color_pwm(0, 0, 0)
-    except:
-        pass
 
 def sincronizar_config():
     """Descarga e impone la configuración horaria de la Base de Datos centralizada en 3D-Moai"""
@@ -433,7 +382,6 @@ def sincronizar_config():
         print("[SYNC INFO] Sincronización reciente omitida (usando config local).")
         return
         
-    iniciar_pulsacion()
     gc.collect()
     gc.collect()
     ram_libre = gc.mem_free()
@@ -458,15 +406,10 @@ def sincronizar_config():
             print("[SYNC ERROR] Fallo al procesar la configuración descargada:", e)
     else:
         print("[SYNC WARNING] No se pudo obtener la configuración desde la nube.")
-        
-    detener_pulsacion()
 
 def encolar_telemetria(url, payload):
     """Realiza la solicitud HTTP POST de forma síncrona en el hilo principal para evitar ENOMEM en hilos"""
     import gc
-    
-    # 1. Iniciar animación de sincronización (pulsación cian rápido)
-    iniciar_pulsacion()
     
     print("[TELEMETRY] Enviando reporte de estadísticas a:", url)
     intento = 0
@@ -486,9 +429,6 @@ def encolar_telemetria(url, payload):
             import time
             time.sleep_ms(500)
             
-    # 2. Detener animación de sincronización
-    detener_pulsacion()
-    
     gc.collect()
     return exito
 
@@ -529,10 +469,4 @@ def enviar_reporte_reaccion(tipo_alerta, duracion_alerta_s):
 # garantizando que los datos actualizados estén disponibles desde el inicio.
 cargar_de_disco()
 cargar_wifi()
-
-# Importar hardware al final para resolver la dependencia circular
-try:
-    import hardware
-except ImportError:
-    pass
 

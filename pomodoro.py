@@ -20,7 +20,15 @@ import config
 import hardware
 import audio
 
-# Unused top-level network imports removed to save MicroPython heap
+try:
+    import urequests
+except ImportError:
+    urequests = None
+
+try:
+    from umqtt.simple import MQTTClient
+except ImportError:
+    MQTTClient = None
 
 # --- ESTADOS DEL SISTEMA POMODORO PRO ---
 ESTADO_STANDBY         = 0
@@ -97,12 +105,9 @@ def enviar_reporte_mqtt(tipo_sesion, ciclo_num, duracion_s):
     Intenta publicar un JSON con la sesión completada al Broker MQTT.
     Retorna True si tiene éxito y False si hay fallas de red/conexión.
     """
-    try:
-        from umqtt.simple import MQTTClient
-    except ImportError:
+    if MQTTClient is None:
         print("[MQTT REPORT WARNING] Modulo umqtt.simple no está disponible.")
         return False
-        
     try:
         import ujson as json
         
