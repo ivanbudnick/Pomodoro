@@ -50,19 +50,29 @@ Este archivo centraliza el historial de problemas encontrados durante el desarro
   - Se configuró la opción de socket `SO_LINGER` a `0` en `_http_request_optimizado` antes de realizar la conexión. Esto fuerza al socket a cerrarse enviando un paquete `RST` en lugar de un handshake de desconexión `FIN`, liberando la conexión del stack de LwIP de forma instantánea sin entrar en `TIME_WAIT`.
   - Se implementó un throttling de sincronización en `sincronizar_config()`, guardando una marca de tiempo (`last_sync_time`). Si el dispositivo ya sincronizó sus tiempos hace menos de 60 segundos (por ejemplo, al arrancar la placa), se omite el GET de configuración redundante al presionar "Comenzar", reduciendo el tráfico y consumo de sockets SSL.
 * **Lección**: En microcontroladores, los sockets SSL deben cerrarse mediante `SO_LINGER=0` (RST) una vez finalizada la transferencia, y se debe evitar realizar llamadas GET/POST repetitivas o consecutivas en intervalos cortos.
+### 8. El Hilo de Pulsación Concurrente agota RAM del Sistema (v1.1.6 - v1.1.7)
+* **Síntoma**: A pesar de utilizar un hilo secundario liviano (de 4KB y sin importaciones de red) para animar el LED durante las llamadas de red síncronas en el hilo principal, la envoltura SSL (`ssl.wrap_socket`) arrojaba recurrentemente `MBEDTLS_ERR_X509_ALLOC_FAILED`.
+* **Causa**:
+  - `setsockopt` con la opción `SO_LINGER` no está implementada en el stack lwIP de este firmware. Por lo tanto, los sockets de arranque (OTA y configuración) no se cerraban con un RST instantáneo, sino que permanecían en estado `TIME_WAIT` por 2 minutos.
+  - Al realizarse la telemetría a los 10 segundos del primer ciclo Focus, la pila de red ya contenía sockets en `TIME_WAIT`. El overhead de memoria adicional del stack del hilo de pulsación (4KB) y las variables de LDR restaban la RAM del sistema (RTOS) necesaria para alocar el handshake TLS y procesar los certificados SSL (exponencialmente pesados en proxies como Vercel/Cloudflare).
+* **Solución**:
+  - Se eliminó por completo el hilo de pulsación en la versión `1.1.8`, retornando al comportamiento síncrono limpio y directo de la v1.1.5 (sin hilos concurrentes activos durante la llamada HTTPS).
+  - Se añadió la cabecera `Connection: close` en las solicitudes HTTP para forzar al servidor a realizar el cierre activo. De esta forma, el cliente finaliza la lectura (EOF) y ejecuta un cierre pasivo limpio (evitando que el socket entre en `TIME_WAIT` en la placa).
+  - Se modificó la rutina para cerrar explícitamente tanto el wrapper SSL como el socket TCP crudo, limpiando referencias (`None`) y corriendo `gc.collect()`.
 
 ---
 
 ## Resumen de Reglas para Futuras Modificaciones
 
-1. **Evitar Hilos Secundarios para SSL**: No procesar solicitudes HTTPS/SSL en hilos secundarios. Realizarlas de forma síncrona en el hilo principal durante las transiciones de estados (pausa, fin de ciclo, reacción).
-2. **Animación de Sincronización Explicita**: Utilizar un hilo secundario liviano (con stack de 4KB y sin importación de red/SSL) para hacer pulsar el LED de color Cian de forma rápida y senoidal durante cualquier llamada de red.
+1. **Evitar Hilos Secundarios para SSL y No Usar Hilos Concurrentes**: No procesar solicitudes HTTPS/SSL en hilos secundarios. Adicionalmente, **no ejecutar ningún hilo concurrente de animación o sensado** mientras se realiza una conexión de red síncrona en el hilo principal para reservar toda la RAM del sistema (RTOS heap) al handshake TLS.
+2. **Animaciones de Red Estáticas**: Evitar hilos secundarios para pulsar el LED de red. Configurar colores estáticos de red o tonos simples no concurrentes antes de iniciar la petición, retornando al color original al finalizar.
 3. **Enmascarar la Latencia de Audio**: Reproducir siempre el sonido de transición inmediatamente *antes* de iniciar la petición de red síncrona, y medir el inicio del temporizador (`cronometro = ticks_ms()`) inmediatamente *después* de la petición de red.
-4. **Evitar estado TIME_WAIT**: Utilizar la opción `SO_LINGER = 0` (l_onoff=1, l_linger=0) en todos los sockets antes de conectarse para asegurar que la memoria de red de LwIP y los descriptores se liberen inmediatamente tras el cierre.
+4. **Evitar estado TIME_WAIT mediante Passive Close**: Dado que `SO_LINGER` no está soportado en setsockopt, enviar siempre el encabezado `Connection: close` en cada request para que el servidor cierre la conexión primero. Tras leer la respuesta completa hasta el final, cerrar el socket de forma pasiva.
 5. **Throttling de Conexiones**: No realizar solicitudes HTTP repetitivas. Comprobar que transcurra al menos 60 segundos entre pings o sincronizaciones de parámetros utilizando marcas de tiempo locales.
 6. **Cerrar Sockets Limpiamente**: Asegurar siempre que se leen todos los datos de respuesta antes de cerrar el socket (bucle de lectura hasta el EOF) para no interrumpir los procesos en servidores serverless.
-7. **Control de Memoria**: Usar `gc.collect()` proactivamente antes de llamadas de red SSL.
+7. **Control de Memoria**: Usar `gc.collect()` proactivamente antes de llamadas de red SSL, limpiar referencias de sockets poniéndolas a `None` tras cerrarlas y forzar una recolección final.
 8. **Verificación de Encolado**: Evitar duplicar reportes para el mismo evento físico. Utilizar `enviar_reporte_nube` y evitar reintroducir `reportar_ciclo`.
+
 
 
 
