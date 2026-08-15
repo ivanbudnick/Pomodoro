@@ -43,12 +43,23 @@ Este archivo centraliza el historial de problemas encontrados durante el desarro
 * **Solución**: Se eliminó por completo el hilo secundario y la cola asíncrona. La telemetría ahora se procesa de forma **síncrona** en el hilo principal. Para que este bloqueo de 1.5 a 2 segundos se vea profesional, se diseñó una **animación artística de sincronización** (el LED RGB se ilumina de color Cian suave `R=0, G=200, B=400` mediante PWM por hardware, el cual continúa oscilando en background aunque la CPU esté bloqueada).
 * **Lección**: Las peticiones HTTPS/SSL en ESP32 son extremadamente demandantes en el heap del sistema (mbedTLS). Evitar el overhead de hilos secundarios y ejecutar la red de forma síncrona en puntos de transición de estados.
 
+### 7. Agotamiento de Heap del Sistema por Sockets en `TIME_WAIT` (Error `MBEDTLS_ERR_X509_ALLOC_FAILED`)
+* **Síntoma**: La primera petición HTTPS (OTA o sincronización al arrancar) funcionaba correctamente, pero la siguiente petición HTTPS realizada a los pocos segundos (sincronización al presionar comenzar, o envío de telemetría inicial) fallaba con `MBEDTLS_ERR_X509_ALLOC_FAILED`.
+* **Causa**: El protocolo TCP mantiene los sockets cerrados en estado `TIME_WAIT` durante 120 segundos para evitar paquetes perdidos de conexiones anteriores. En ESP32, mantener múltiples conexiones SSL en `TIME_WAIT` consume recursos del stack de red (LwIP) en el heap del sistema. Si se realizan múltiples llamadas HTTPS consecutivas en menos de 2 minutos (como OTA, config boot, config start, e inicio de ciclo), el heap del sistema se agota y mbedTLS no puede alocar memoria para procesar el certificado del servidor.
+* **Solución**:
+  - Se configuró la opción de socket `SO_LINGER` a `0` en `_http_request_optimizado` antes de realizar la conexión. Esto fuerza al socket a cerrarse enviando un paquete `RST` en lugar de un handshake de desconexión `FIN`, liberando la conexión del stack de LwIP de forma instantánea sin entrar en `TIME_WAIT`.
+  - Se implementó un throttling de sincronización en `sincronizar_config()`, guardando una marca de tiempo (`last_sync_time`). Si el dispositivo ya sincronizó sus tiempos hace menos de 60 segundos (por ejemplo, al arrancar la placa), se omite el GET de configuración redundante al presionar "Comenzar", reduciendo el tráfico y consumo de sockets SSL.
+* **Lección**: En microcontroladores, los sockets SSL deben cerrarse mediante `SO_LINGER=0` (RST) una vez finalizada la transferencia, y se debe evitar realizar llamadas GET/POST repetitivas o consecutivas en intervalos cortos.
+
 ---
 
 ## Resumen de Reglas para Futuras Modificaciones
 
 1. **Evitar Hilos Secundarios para SSL**: No procesar solicitudes HTTPS/SSL en hilos secundarios. Realizarlas de forma síncrona en el hilo principal durante las transiciones de estados (pausa, fin de ciclo, reacción) aprovechando el hardware PWM para mantener una animación de sincronización visual (LED Cian suave).
-2. **Cerrar Sockets Limpiamente**: Asegurar siempre que se leen todos los datos antes de cerrar el socket (bucle de lectura hasta el EOF).
-3. **Control de Memoria**: Usar `gc.collect()` proactivamente antes de llamadas de red SSL.
-4. **Verificación de Encolado**: Evitar duplicar reportes para el mismo evento físico. Utilizar `enviar_reporte_nube` y evitar reintroducir `reportar_ciclo`.
+2. **Evitar estado TIME_WAIT**: Utilizar la opción `SO_LINGER = 0` (l_onoff=1, l_linger=0) en todos los sockets antes de conectarse para asegurar que la memoria de red de LwIP y los descriptores se liberen inmediatamente tras el cierre.
+3. **Throttling de Conexiones**: No realizar solicitudes HTTP repetitivas. Comprobar que transcurra al menos 60 segundos entre pings o sincronizaciones de parámetros utilizando marcas de tiempo locales.
+4. **Cerrar Sockets Limpiamente**: Asegurar siempre que se leen todos los datos de respuesta antes de cerrar el socket (bucle de lectura hasta el EOF) para no interrumpir los procesos en servidores serverless.
+5. **Control de Memoria**: Usar `gc.collect()` proactivamente antes de llamadas de red SSL.
+6. **Verificación de Encolado**: Evitar duplicar reportes para el mismo evento físico. Utilizar `enviar_reporte_nube` y evitar reintroducir `reportar_ciclo`.
+
 

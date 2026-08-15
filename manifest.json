@@ -1,7 +1,7 @@
 {
   "files": {
-    "config.py": "581fff8bda6e50c2a4fde576ce8da714c15423df99d257afe3fd12e5d8326e22",
-    "version.py": "d7d7d1055c8c700697cd810ed4f5d697fa2a90a384b783d767deb35a342f9f33",
+    "config.py": "52aa1c712ca394577d72ebf415dcfd24a2269b2e6ddb44618758013450dab7a1",
+    "version.py": "49072ccf927ded2a3de0b51ba6a823f2a9e195211018957ec744747a7498ce81",
     "hardware.py": "449bbac9180a0fe49aa0bb5409c835c6c37adc14297fe48162967cc01b70cf24",
     "pomodoro.py": "5b57edbd119651f7e59639e8e58ec8be13b7f03e672468a7c24bba70f17bb133",
     "audio.py": "0d11a7dbc8b17c5f79c690ce1268bdb275499d9e21e4c40069ae5f4995a44bf3",

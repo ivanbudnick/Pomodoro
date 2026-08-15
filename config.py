@@ -16,6 +16,8 @@ SERVER_URL = DEFAULT_SERVER_URL
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC_SESIONES = "pomodoro/sesiones"
+last_sync_time = 0
+
 try:
     from version import VERSION
 except ImportError:
@@ -257,6 +259,17 @@ def _http_request_optimizado(method, url, payload=None):
         print("[HTTP DEBUG] Creando socket...")
         s = socket.socket()
         s.settimeout(5)
+        
+        # Evitar estado TIME_WAIT configurando SO_LINGER a 0
+        try:
+            import struct
+            sol_socket = getattr(socket, "SOL_SOCKET", 1)
+            so_linger = getattr(socket, "SO_LINGER", 13)
+            s.setsockopt(sol_socket, so_linger, struct.pack('ii', 1, 0))
+            print("[HTTP DEBUG] SO_LINGER establecido a 0 (evita TIME_WAIT).")
+        except Exception as le:
+            print("[HTTP DEBUG] No se pudo establecer SO_LINGER:", le)
+            
         print("[HTTP DEBUG] Conectando a {}...".format(addr))
         s.connect(addr)
         print("[HTTP DEBUG] Socket conectado exitosamente.")
@@ -361,7 +374,16 @@ def enviar_post_directo(url, payload):
 
 def sincronizar_config():
     """Descarga e impone la configuración horaria de la Base de Datos centralizada en 3D-Moai"""
+    global last_sync_time
     import gc
+    import time
+    
+    # Si sincronizamos hace menos de 60 segundos, omitir para no agotar la memoria del sistema
+    ahora = time.ticks_ms()
+    if last_sync_time > 0 and time.ticks_diff(ahora, last_sync_time) < 60000:
+        print("[SYNC INFO] Sincronización reciente omitida (usando config local).")
+        return
+        
     gc.collect()
     gc.collect()
     ram_libre = gc.mem_free()
@@ -371,6 +393,7 @@ def sincronizar_config():
     
     data = _http_request_optimizado("GET", url)
     if data:
+        last_sync_time = ahora
         try:
             global tiempo_focus_s, tiempo_descanso_corto_s, tiempo_descanso_largo_s, descanso_largo_activo, ciclos_para_descanso_largo
             tiempo_focus_s = int(data.get("tiempo_focus", tiempo_focus_s))
