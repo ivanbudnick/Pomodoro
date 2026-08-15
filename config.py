@@ -279,12 +279,10 @@ def _http_request_optimizado(method, url, payload=None):
             print("[HTTP DEBUG] Envolviendo socket en SSL (RAM libre pre-wrap: {} bytes)...".format(gc.mem_free()))
             gc.collect()
             s = ssl.wrap_socket(s, server_hostname=host)
-            print("[HTTP DEBUG] SSL wrap exitoso. RAM libre post-wrap: {} bytes".format(gc.mem_free()))
             try:
                 s.settimeout(5)
-                print("[HTTP DEBUG] Timeout de 5s establecido en socket SSL.")
-            except Exception as te:
-                print("[HTTP DEBUG] No se pudo re-aplicar timeout en socket SSL:", te)
+            except Exception:
+                pass
             
         # 5. Formatear y escribir la solicitud (HTTP/1.0)
         req = "{} {} HTTP/1.0\r\nHost: {}\r\n".format(method, path, host)
@@ -412,14 +410,7 @@ def sincronizar_config():
 def encolar_telemetria(url, payload):
     """Realiza la solicitud HTTP POST de forma síncrona en el hilo principal para evitar ENOMEM en hilos"""
     import gc
-    import pomodoro
     
-    # 1. Activar animación de sincronización (cian suave)
-    try:
-        pomodoro.mostrar_animacion_sincronizacion(True)
-    except:
-        pass
-        
     print("[TELEMETRY] Enviando reporte de estadísticas a:", url)
     intento = 0
     exito = False
@@ -438,12 +429,6 @@ def encolar_telemetria(url, payload):
             import time
             time.sleep_ms(500)
             
-    # 2. Desactivar animación de sincronización
-    try:
-        pomodoro.mostrar_animacion_sincronizacion(False)
-    except:
-        pass
-        
     gc.collect()
     return exito
 

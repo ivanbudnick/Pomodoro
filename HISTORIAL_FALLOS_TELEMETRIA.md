@@ -40,8 +40,8 @@ Este archivo centraliza el historial de problemas encontrados durante el desarro
 ### 6. Agotamiento de Memoria del Sistema (System Heap ENOMEM) por Pila de Hilo Secundario
 * **Síntoma**: La envoltura del socket en SSL (`ssl.wrap_socket`) fallaba con `[Errno 12] ENOMEM` a pesar de que el heap de MicroPython mostraba más de 84KB de RAM libre (`gc.mem_free()`).
 * **Causa**: mbedTLS (código C de ESP-IDF) realiza alocaciones dinámicas para el handshake HTTPS en el heap del sistema (ESP-IDF heap, fuera de MicroPython). Un hilo secundario requiere que ESP-IDF asigne su pila (stack) de 20KB directamente desde este mismo heap del sistema. Al estar el hilo activo, consumía de forma permanente 20KB de RAM del sistema, dejando al mbedTLS sin suficiente memoria contigua para los buffers de cifrado (30KB+), lo que resultaba en fallas de `ENOMEM`.
-* **Solución**: Se eliminó por completo el hilo secundario y la cola asíncrona. La telemetría ahora se procesa de forma **síncrona** en el hilo principal. Para que este bloqueo de 1.5 a 2 segundos se vea profesional, se diseñó una **animación artística de sincronización** (el LED RGB se ilumina de color Cian suave `R=0, G=200, B=400` mediante PWM por hardware, el cual continúa oscilando en background aunque la CPU esté bloqueada).
-* **Lección**: Las peticiones HTTPS/SSL en ESP32 son extremadamente demandantes en el heap del sistema (mbedTLS). Evitar el overhead de hilos secundarios y ejecutar la red de forma síncrona en puntos de transición de estados.
+* **Solución**: Se eliminó por completo el hilo secundario y la cola asíncrona. La telemetría ahora se procesa de forma **síncrona** en el hilo principal. Para que el bloqueo de 1.5 a 2 segundos sea imperceptible para el usuario, se implementó una **estrategia de enmascaramiento de latencia (latency masking)**: los sonidos de transición y el cambio de color/estado del LED (en brillo atenuado) se disparan inmediatamente al presionar el botón o completarse un ciclo; luego se realiza el bloqueo síncrono del request de red, y finalmente se ajusta el temporizador (`cronometro = ticks_ms()`) al valor post-red para no perder precisión en la medición física del ciclo.
+* **Lección**: Las peticiones HTTPS/SSL en ESP32 son extremadamente demandantes en el heap del sistema (mbedTLS). Evitar el overhead de hilos secundarios y ejecutar la red de forma síncrona en puntos de transición de estados enmascarando el retraso con transiciones visuales y de audio inmediatas.
 
 ### 7. Agotamiento de Heap del Sistema por Sockets en `TIME_WAIT` (Error `MBEDTLS_ERR_X509_ALLOC_FAILED`)
 * **Síntoma**: La primera petición HTTPS (OTA o sincronización al arrancar) funcionaba correctamente, pero la siguiente petición HTTPS realizada a los pocos segundos (sincronización al presionar comenzar, o envío de telemetría inicial) fallaba con `MBEDTLS_ERR_X509_ALLOC_FAILED`.
@@ -55,11 +55,13 @@ Este archivo centraliza el historial de problemas encontrados durante el desarro
 
 ## Resumen de Reglas para Futuras Modificaciones
 
-1. **Evitar Hilos Secundarios para SSL**: No procesar solicitudes HTTPS/SSL en hilos secundarios. Realizarlas de forma síncrona en el hilo principal durante las transiciones de estados (pausa, fin de ciclo, reacción) aprovechando el hardware PWM para mantener una animación de sincronización visual (LED Cian suave).
-2. **Evitar estado TIME_WAIT**: Utilizar la opción `SO_LINGER = 0` (l_onoff=1, l_linger=0) en todos los sockets antes de conectarse para asegurar que la memoria de red de LwIP y los descriptores se liberen inmediatamente tras el cierre.
-3. **Throttling de Conexiones**: No realizar solicitudes HTTP repetitivas. Comprobar que transcurra al menos 60 segundos entre pings o sincronizaciones de parámetros utilizando marcas de tiempo locales.
-4. **Cerrar Sockets Limpiamente**: Asegurar siempre que se leen todos los datos de respuesta antes de cerrar el socket (bucle de lectura hasta el EOF) para no interrumpir los procesos en servidores serverless.
-5. **Control de Memoria**: Usar `gc.collect()` proactivamente antes de llamadas de red SSL.
-6. **Verificación de Encolado**: Evitar duplicar reportes para el mismo evento físico. Utilizar `enviar_reporte_nube` y evitar reintroducir `reportar_ciclo`.
+1. **Evitar Hilos Secundarios para SSL**: No procesar solicitudes HTTPS/SSL en hilos secundarios. Realizarlas de forma síncrona en el hilo principal durante las transiciones de estados (pausa, fin de ciclo, reacción).
+2. **Enmascarar la Latencia**: Reproducir siempre el sonido de transición y establecer el LED en el color/brillo del nuevo estado *antes* de iniciar la petición de red síncrona, y medir el inicio del temporizador (`cronometro = ticks_ms()`) inmediatamente *después* de la petición de red.
+3. **Evitar estado TIME_WAIT**: Utilizar la opción `SO_LINGER = 0` (l_onoff=1, l_linger=0) en todos los sockets antes de conectarse para asegurar que la memoria de red de LwIP y los descriptores se liberen inmediatamente tras el cierre.
+4. **Throttling de Conexiones**: No realizar solicitudes HTTP repetitivas. Comprobar que transcurra al menos 60 segundos entre pings o sincronizaciones de parámetros utilizando marcas de tiempo locales.
+5. **Cerrar Sockets Limpiamente**: Asegurar siempre que se leen todos los datos de respuesta antes de cerrar el socket (bucle de lectura hasta el EOF) para no interrumpir los procesos en servidores serverless.
+6. **Control de Memoria**: Usar `gc.collect()` proactivamente antes de llamadas de red SSL.
+7. **Verificación de Encolado**: Evitar duplicar reportes para el mismo evento físico. Utilizar `enviar_reporte_nube` y evitar reintroducir `reportar_ciclo`.
+
 
 

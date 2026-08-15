@@ -4,7 +4,7 @@
 
 ## MicroPython ESP32 SSL & Networking Rules
 
-- **Avoid SSL in Background Threads**: Avoid using background threads for HTTPS/SSL connections. Thread stacks (e.g. 20KB) allocated from the system heap leave mbedTLS without enough memory, causing `ENOMEM` during the handshake. Perform HTTPS requests synchronously during phase transitions and pause the main thread while utilizing hardware PWM for a user-facing sync animation (e.g. a gentle Cyan LED glow).
+- **Avoid SSL in Background Threads**: Avoid using background threads for HTTPS/SSL connections. Thread stacks (e.g. 20KB) allocated from the system heap leave mbedTLS without enough memory, causing `ENOMEM` during the handshake. Perform HTTPS requests synchronously during phase transitions and pause the main thread while utilizing hardware PWM and audio drivers *before* the request starts to mask latency (latency masking).
 - **Clean Socket Shutdown (Avoid RST)**: Always read and discard the entire response headers and body from HTTP requests (both GET and POST) before closing sockets. Closing a socket with unread data in the receive buffer causes a TCP Reset (RST) which aborts serverless lambdas (e.g. on Vercel) and prevents database writes.
 - **Avoid LwIP TIME_WAIT State**: Configure the `SO_LINGER` option to `0` (l_onoff=1, l_linger=0) on sockets before connecting to avoid the 2-minute `TIME_WAIT` state, releasing system heap and sockets immediately upon closure.
 - **Throttle Connection Frequency**: Throttle duplicate or consecutive config synchronization and status requests. Enforce a minimum interval (e.g. 60 seconds) between requests to prevent system heap exhaustion from back-to-back SSL handshakes.
