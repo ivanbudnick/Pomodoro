@@ -370,6 +370,48 @@ def enviar_post_directo(url, payload):
     """Realiza una solicitud HTTP POST síncrona y directa (sin cola ni hilos)"""
     return bool(_http_request_optimizado("POST", url, payload))
 
+pulsar_activo = False
+
+def thread_pulsar():
+    global pulsar_activo
+    import time
+    import math
+    import hardware
+    
+    step = 0
+    while pulsar_activo:
+        # Pulsación gradual senoidal de cian (G y B)
+        # Amplitud de 150 a 800 para que varíe de forma visible, pero sin apagarse a 0
+        val = int(475 + 325 * math.sin(step * 0.5))
+        try:
+            hardware.set_color_pwm(0, val, val)
+        except:
+            pass
+        step += 1
+        time.sleep_ms(30) # Pulsación rápida y gradual
+
+def iniciar_pulsacion():
+    global pulsar_activo
+    pulsar_activo = True
+    try:
+        import _thread
+        _thread.stack_size(4096) # Pila mínima necesaria
+        _thread.start_new_thread(thread_pulsar, ())
+        _thread.stack_size(0)
+    except Exception as e:
+        print("[SYNC LED WARNING] No se pudo iniciar pulsación:", e)
+
+def detener_pulsacion():
+    global pulsar_activo
+    pulsar_activo = False
+    import time
+    time.sleep_ms(50)
+    try:
+        import hardware
+        hardware.set_color_pwm(0, 0, 0)
+    except:
+        pass
+
 def sincronizar_config():
     """Descarga e impone la configuración horaria de la Base de Datos centralizada en 3D-Moai"""
     global last_sync_time
@@ -382,6 +424,7 @@ def sincronizar_config():
         print("[SYNC INFO] Sincronización reciente omitida (usando config local).")
         return
         
+    iniciar_pulsacion()
     gc.collect()
     gc.collect()
     ram_libre = gc.mem_free()
@@ -406,10 +449,15 @@ def sincronizar_config():
             print("[SYNC ERROR] Fallo al procesar la configuración descargada:", e)
     else:
         print("[SYNC WARNING] No se pudo obtener la configuración desde la nube.")
+        
+    detener_pulsacion()
 
 def encolar_telemetria(url, payload):
     """Realiza la solicitud HTTP POST de forma síncrona en el hilo principal para evitar ENOMEM en hilos"""
     import gc
+    
+    # 1. Iniciar animación de sincronización (pulsación cian rápido)
+    iniciar_pulsacion()
     
     print("[TELEMETRY] Enviando reporte de estadísticas a:", url)
     intento = 0
@@ -429,6 +477,9 @@ def encolar_telemetria(url, payload):
             import time
             time.sleep_ms(500)
             
+    # 2. Detener animación de sincronización
+    detener_pulsacion()
+    
     gc.collect()
     return exito
 
