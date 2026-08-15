@@ -194,72 +194,147 @@ def cargar_wifi():
         WIFI_SSID = ""
         WIFI_PASSWORD = ""
 
-def enviar_post_directo(url, payload):
-    """Realiza una solicitud HTTP POST síncrona y directa (sin cola ni hilos)"""
+def _http_request_optimizado(method, url, payload=None):
+    """
+    Cliente HTTP de bajo nivel optimizado para MicroPython.
+    - Utiliza HTTP/1.0 para evitar la decodificación de transferencias fragmentadas (chunked encoding).
+    - Evita importar la librería urequests (ahorrando memoria de importación).
+    - No parsea headers de respuesta para POST, liberando buffers SSL de inmediato.
+    - Para GET, descarta headers línea por línea para evitar fragmentación del Heap.
+    """
+    import usocket as socket
+    import ussl
+    import gc
+    import ujson as json
+    
+    gc.collect()
+    gc.collect()
+    
+    # 1. Parsear URL de forma segura
     try:
-        import urequests
-    except ImportError:
-        print("[HTTP ERROR] Módulo urequests no disponible.")
-        return False
-        
-    res = None
-    try:
-        import gc
-        gc.collect()
-        print("[HTTP POST] Enviando datos a:", url)
-        res = urequests.post(url, json=payload, timeout=3)
-        status = res.status_code
-        res.close()
-        return 200 <= status < 300
+        proto, _, host_path = url.split("/", 2)
+        if "/" in host_path:
+            host, path = host_path.split("/", 1)
+            path = "/" + path
+        else:
+            host = host_path
+            path = "/"
     except Exception as e:
-        print("[HTTP ERROR] Fallo al enviar POST directo:", e)
-        if res:
+        print("[HTTP ERROR] URL malformada:", url, e)
+        return None
+        
+    use_ssl = proto.startswith("https")
+    port = 443 if use_ssl else 80
+    
+    # 2. Resolver DNS
+    try:
+        addr = socket.getaddrinfo(host, port)[0][-1]
+    except Exception as e:
+        print("[HTTP ERROR] DNS fail:", e)
+        return None
+        
+    s = None
+    try:
+        # 3. Crear y conectar Socket
+        s = socket.socket()
+        s.settimeout(5)
+        s.connect(addr)
+        
+        # 4. Envolver en SSL si corresponde
+        if use_ssl:
+            s = ussl.wrap_socket(s, server_hostname=host)
+            
+        # 5. Formatear y escribir la solicitud (HTTP/1.0)
+        req = "{} {} HTTP/1.0\r\nHost: {}\r\n".format(method, path, host)
+        
+        body_bytes = None
+        if payload is not None:
+            body_bytes = json.dumps(payload).encode('utf-8')
+            req += "Content-Type: application/json\r\nContent-Length: {}\r\n".format(len(body_bytes))
+            
+        req += "\r\n"
+        
+        s.write(req.encode('utf-8'))
+        if body_bytes:
+            s.write(body_bytes)
+            
+        # 6. Leer y evaluar primera línea de respuesta (Status)
+        resp_line = s.readline()
+        if not resp_line:
+            print("[HTTP ERROR] Servidor cerró conexión sin respuesta.")
+            return None
+            
+        status_line = resp_line.decode('utf-8')
+        
+        parts = status_line.split(" ", 2)
+        if len(parts) < 2:
+            print("[HTTP ERROR] Respuesta inválida:", status_line.strip())
+            return None
+            
+        status_code = int(parts[1])
+        if not (200 <= status_code < 300):
+            print("[HTTP ERROR] Servidor respondió con código:", status_code)
+            return None
+            
+        # 7. Procesar según método
+        if method == "GET":
+            # Saltar headers línea por línea (sin almacenarlos en memoria)
+            while True:
+                line = s.readline()
+                if not line or line == b"\r\n":
+                    break
+            # Leer el body completo (HTTP/1.0 garantiza que lee hasta el EOF al cerrar el server)
+            body_data = s.read()
             try:
-                res.close()
+                return json.loads(body_data)
+            except Exception as je:
+                print("[HTTP ERROR] Fallo al decodificar JSON del body:", je)
+                return None
+        else:
+            # Para POST (telemetría), un código 2xx es éxito, no necesitamos parsear el cuerpo
+            return True
+            
+    except Exception as e:
+        print("[HTTP ERROR] Excepción en request:", e)
+        return None
+    finally:
+        if s:
+            try:
+                s.close()
             except:
                 pass
-        return False
+        gc.collect()
+
+def enviar_post_directo(url, payload):
+    """Realiza una solicitud HTTP POST síncrona y directa (sin cola ni hilos)"""
+    return bool(_http_request_optimizado("POST", url, payload))
 
 def sincronizar_config():
     """Descarga e impone la configuración horaria de la Base de Datos centralizada en 3D-Moai"""
-    try:
-        import urequests
-    except ImportError:
-        print("[SYNC WARNING] Modulo urequests no disponible para sincronización.")
-        return
-        
-    try:
-        import gc
-        # Ejecutar recolección doble para desfragmentar el Heap antes de la negociación TLS
-        gc.collect()
-        gc.collect()
-        ram_libre = gc.mem_free()
-        
-        url = SERVER_URL + "/api/pomodoro/config?device_id=" + DEVICE_ID
-        print("[SYNC] Descargando última configuración de 3D-Moai desde {} (RAM libre: {} bytes)...".format(url, ram_libre))
-        res = urequests.get(url, timeout=3)
-        if res.status_code == 200:
-            data = res.json()
-            if data:
-                global tiempo_focus_s, tiempo_descanso_corto_s, tiempo_descanso_largo_s, descanso_largo_activo, ciclos_para_descanso_largo
-                tiempo_focus_s = int(data.get("tiempo_focus", tiempo_focus_s))
-                tiempo_descanso_corto_s = int(data.get("tiempo_descanso_corto", tiempo_descanso_corto_s))
-                tiempo_descanso_largo_s = int(data.get("tiempo_descanso_largo", tiempo_descanso_largo_s))
-                descanso_largo_activo = bool(data.get("descanso_largo_activo", descanso_largo_activo))
-                ciclos_para_descanso_largo = int(data.get("ciclos_para_descanso_largo", ciclos_para_descanso_largo))
-                guardar_a_disco()
-                print("[SYNC SUCCESS] Configuración de tiempos sincronizada con 3D-Moai.")
-                print_configuracion_actual()
-            else:
-                print("[SYNC INFO] No hay configuraciones en la nube aún.")
-        else:
-            print("[SYNC WARNING] Servidor 3D-Moai no disponible. Código: {}".format(res.status_code))
-        res.close()
-    except Exception as e:
-        print("[SYNC WARNING] No se pudo conectar a 3D-Moai para sincronizar ({}).".format(e))
-    finally:
-        import gc
-        gc.collect()
+    import gc
+    gc.collect()
+    gc.collect()
+    ram_libre = gc.mem_free()
+    
+    url = SERVER_URL + "/api/pomodoro/config?device_id=" + DEVICE_ID
+    print("[SYNC] Descargando última configuración de 3D-Moai desde {} (RAM libre: {} bytes)...".format(url, ram_libre))
+    
+    data = _http_request_optimizado("GET", url)
+    if data:
+        try:
+            global tiempo_focus_s, tiempo_descanso_corto_s, tiempo_descanso_largo_s, descanso_largo_activo, ciclos_para_descanso_largo
+            tiempo_focus_s = int(data.get("tiempo_focus", tiempo_focus_s))
+            tiempo_descanso_corto_s = int(data.get("tiempo_descanso_corto", tiempo_descanso_corto_s))
+            tiempo_descanso_largo_s = int(data.get("tiempo_descanso_largo", tiempo_descanso_largo_s))
+            descanso_largo_activo = bool(data.get("descanso_largo_activo", descanso_largo_activo))
+            ciclos_para_descanso_largo = int(data.get("ciclos_para_descanso_largo", ciclos_para_descanso_largo))
+            guardar_a_disco()
+            print("[SYNC SUCCESS] Configuración de tiempos sincronizada con 3D-Moai.")
+            print_configuracion_actual()
+        except Exception as e:
+            print("[SYNC ERROR] Fallo al procesar la configuración descargada:", e)
+    else:
+        print("[SYNC WARNING] No se pudo obtener la configuración desde la nube.")
 
 # Cola de telemetría asíncrona en memoria
 telemetria_cola = []
@@ -281,9 +356,9 @@ def encolar_telemetria(url, payload):
             
     if not worker_iniciado:
         try:
-            # Incrementar el tamaño del stack de hilos nuevos (por defecto es muy chico para TLS/HTTPS)
+            # Un stack de 8KB es suficiente gracias a que el cliente optimizado consume muy poca pila
             try:
-                _thread.stack_size(10240)
+                _thread.stack_size(8192)
             except Exception as se:
                 print("[TELEMETRY WARNING] No se pudo ajustar stack size:", se)
             _thread.start_new_thread(_telemetry_worker, ())
@@ -297,10 +372,9 @@ def encolar_telemetria(url, payload):
             print("[TELEMETRY ERROR] No se pudo iniciar el hilo asíncrono:", e)
 
 def _telemetry_worker():
-    """Bucle del hilo de fondo que procesa la cola de telemetría secuencialmente"""
+    """Bucle del hilo de fondo que procesa la cola de telemetría secuencialmente utilizando el cliente optimizado"""
     global worker_iniciado
     
-    import urequests
     import gc
     import time
     
@@ -318,23 +392,14 @@ def _telemetry_worker():
             exito = False
             print("[TELEMETRY WORKER] Intentando enviar reporte a:", url)
             while intento < 2 and not exito:
-                res = None
                 try:
-                    gc.collect()
-                    res = urequests.post(url, json=payload, timeout=5)
-                    if 200 <= res.status_code < 300:
-                        exito = True
-                        print("[TELEMETRY WORKER SUCCESS] Reporte enviado correctamente (status: {}).".format(res.status_code))
+                    exito = _http_request_optimizado("POST", url, payload)
+                    if exito:
+                        print("[TELEMETRY WORKER SUCCESS] Reporte enviado correctamente.")
                     else:
-                        print("[TELEMETRY WORKER WARNING] Servidor respondió con status: {} en intento {}.".format(res.status_code, intento + 1))
-                    res.close()
+                        print("[TELEMETRY WORKER WARNING] Intento {} falló.".format(intento + 1))
                 except Exception as e:
                     print("[TELEMETRY WORKER ERROR] Intento {} fallido. Error: {}".format(intento + 1, e))
-                    if res:
-                        try:
-                            res.close()
-                        except:
-                            pass
                 intento += 1
                 if not exito:
                     time.sleep_ms(500)
